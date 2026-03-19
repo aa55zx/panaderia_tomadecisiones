@@ -149,6 +149,7 @@ class App(tk.Tk):
         btn("Clima",          "OpenWeather en tiempo real", self.importar_clima,    "#2E86AB")
         btn("Comentarios",    "Analizar redes sociales", self.analizar_comentarios, PURPLE)
         btn("Calidad de Datos", "Explorar, limpiar y normalizar", self.calidad_datos, SUCCESS)
+        btn("MongoDB",          "Guardar en MongoDB",              self.guardar_en_mongo, "#13AA52")
 
         tk.Frame(bar, bg=BORDER, width=1).pack(side="left", fill="y", padx=14)
         info = tk.Frame(bar, bg=BG)
@@ -199,19 +200,22 @@ class App(tk.Tk):
     # ── Boton 1: Base de Datos ────────────────────────────────────────────────
     def importar_bd(self):
         if not self.db.is_connected:
-            path = filedialog.askopenfilename(
-                title="Abrir base de datos",
-                filetypes=[("SQLite","*.db *.sqlite"),("All","*.*")])
-            if not path: return
-            self.db.connect(path)
+            try:
+                self.db.connect()
+            except Exception as e:
+                messagebox.showerror("Error MongoDB",
+                    "No se pudo conectar a MongoDB.\n"
+                    "Verifica que el servicio este corriendo.\n\n" + str(e))
+                return
 
         EXCLUIR = {"Dim_Clima"}
         tablas = [t for t in self.db.list_tables() if t not in EXCLUIR]
         tablas += self.db.list_views()
         if not tablas:
-            messagebox.showinfo("Sin tablas",
-                "La BD no tiene tablas.\nEjecuta init_db.py primero.")
-            return
+            messagebox.showinfo("Sin colecciones",
+                "La BD no tiene datos. Se generaran automaticamente...")
+            self.db.init_panaderia()
+            tablas = [t for t in self.db.list_tables() if t not in EXCLUIR]
         self._dialogo_lista("Seleccionar tabla", tablas,
             lambda t: self._cargar_df(self.db.read_table(t), "BD: " + t),
             info_fn=lambda t: str(self.db.table_row_count(t)) + " filas")
@@ -894,12 +898,111 @@ class App(tk.Tk):
         except Exception:
             pass
 
+    # ── Boton MongoDB: Guardar datos actuales en MongoDB ──────────────────────
+    def guardar_en_mongo(self):
+        if self.df is None or self.df.empty:
+            messagebox.showinfo("Sin datos",
+                "Primero carga datos usando alguno de los botones superiores.")
+            return
+
+        # Conectar si no esta conectado
+        if not self.db.is_connected:
+            try:
+                self.db.connect()
+            except Exception as e:
+                messagebox.showerror("Error MongoDB",
+                    "No se pudo conectar a MongoDB.\n" + str(e))
+                return
+
+        # Ventana de guardado
+        win = tk.Toplevel(self)
+        win.title("Guardar en MongoDB Atlas")
+        win.configure(bg=BG)
+        win.geometry("460x380")
+        win.resizable(False, False)
+        win.grab_set()
+
+        # Encabezado verde
+        tk.Label(win, text="MongoDB Atlas \u2014 Panaderia El Ranchero",
+                 font=("Segoe UI", 12, "bold"),
+                 bg="#13AA52", fg=WHITE, pady=12
+                 ).pack(fill="x")
+
+        # Campos
+        form = tk.Frame(win, bg=BG)
+        form.pack(fill="x", padx=24, pady=(18, 0))
+
+        def campo(parent, label, valor=""):
+            tk.Label(parent, text=label, font=("Segoe UI", 10),
+                     fg=TEXT2, bg=BG, anchor="w"
+                     ).pack(fill="x", pady=(8, 2))
+            var = tk.StringVar(value=valor)
+            tk.Entry(parent, textvariable=var, bg=WHITE, fg=TEXT,
+                     insertbackground=TEXT, relief="flat",
+                     font=("Segoe UI", 10),
+                     highlightthickness=1, highlightbackground=BORDER,
+                     highlightcolor="#13AA52"
+                     ).pack(fill="x", ipady=5)
+            return var
+
+        db_var  = campo(form, "Base de datos:", "panaderia")
+        col_var = campo(form, "Coleccion:",     "Excel_Ventas")
+
+        # Si ya existe
+        tk.Label(form, text="Si ya existe:", font=("Segoe UI", 10),
+                 fg=TEXT2, bg=BG, anchor="w"
+                 ).pack(fill="x", pady=(8, 2))
+        modo_var = tk.StringVar(value="Reemplazar coleccion")
+        ttk.Combobox(form, textvariable=modo_var, state="readonly",
+                     values=["Reemplazar coleccion", "Agregar documentos"],
+                     font=("Segoe UI", 10)
+                     ).pack(fill="x", ipady=3)
+
+        # Info filas
+        n_filas = len(self.df)
+        tk.Label(win, text="Datos listos: " + str(n_filas) + " filas",
+                 font=("Segoe UI", 10, "bold"),
+                 fg="#13AA52", bg=BG
+                 ).pack(anchor="w", padx=24, pady=(12, 0))
+
+        def guardar():
+            db_name = db_var.get().strip()
+            col_name = col_var.get().strip()
+            modo    = "replace" if "Reemplazar" in modo_var.get() else "append"
+            if not db_name or not col_name:
+                messagebox.showwarning("Faltan datos",
+                    "Escribe el nombre de la base de datos y la coleccion.")
+                return
+            try:
+                self.db.connect(db_name=db_name)
+                n = self.db.import_dataframe(self.df, col_name, if_exists=modo)
+                win.destroy()
+                messagebox.showinfo("Guardado exitoso",
+                    f"Se guardaron {n} registros en:\n"
+                    f"Base de datos: {db_name}\nColeccion: {col_name}")
+                self.lbl_status.config(
+                    text="Guardado en MongoDB: " + db_name + "/" + col_name +
+                         " (" + str(n) + " registros)")
+            except Exception as e:
+                messagebox.showerror("Error", "No se pudo guardar:\n" + str(e))
+
+        tk.Button(win, text="  Guardar en MongoDB Atlas  ",
+                  command=guardar,
+                  bg="#13AA52", fg=WHITE, relief="flat",
+                  font=("Segoe UI", 11, "bold"), cursor="hand2",
+                  pady=10, activebackground=HDR, activeforeground=WHITE
+                  ).pack(fill="x", padx=24, pady=(10, 16))
+
     def _autoconnect(self):
-        ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "panaderia.db")
-        if os.path.exists(ruta):
-            self.db.connect(ruta)
-            self.lbl_status.config(text="Base de datos conectada: panaderia.db")
+        try:
+            self.db.connect()
+            if not self.db.is_panaderia_ready():
+                self.db.init_panaderia()
+            self.lbl_status.config(
+                text="Base de datos conectada: MongoDB (panaderia)")
+        except Exception as e:
+            self.lbl_status.config(
+                text="MongoDB no disponible: " + str(e))
 
 
 if __name__ == "__main__":
