@@ -67,20 +67,27 @@ def _alerta_ventas(temp, lluvia, condicion):
 def _clima_demo(ciudad):
     ahora = datetime.now()
     rows = []
-    presiones = [1012, 1008, 1018, 1003, 1005, 1020, 1010, 1001, 1015]
-    for i, (cond, tmax, tmin, hum, viento, main) in enumerate(CLIMAS_DEMO):
-        momento = "Ahora" if i == 0 else (ahora + timedelta(hours=i*3)).strftime("%Y-%m-%d %H:%M")
-        lluvia  = round(random.uniform(0.5, 5.0), 1) if main in ("Rain","Thunderstorm") else 0.0
+    n_registros = 48  # cada 30 minutos durante 24 horas
+    for i in range(n_registros):
+        patron = CLIMAS_DEMO[i % len(CLIMAS_DEMO)]
+        cond, tmax, tmin, hum, viento, main = patron
+        momento  = "Ahora" if i == 0 else (ahora + timedelta(minutes=i * 30)).strftime("%Y-%m-%d %H:%M")
+        temp     = round(tmax + random.uniform(-1.5, 1.5), 1)
+        sensacion = round(tmin + random.uniform(-1.0, 1.0), 1)
+        humedad  = min(100, max(0, int(hum + random.randint(-5, 5))))
+        viento_v = round(viento + random.uniform(-0.5, 0.5), 1)
+        presion  = random.randint(1000, 1022)
+        lluvia   = round(random.uniform(0.5, 5.0), 1) if main in ("Rain", "Thunderstorm") else 0.0
         rows.append({
             "Momento"       : momento,
             "Ciudad"        : ciudad,
-            "Temperatura C" : tmax,
-            "Sensacion C"   : tmin,
-            "Humedad %"     : hum,
+            "Temperatura C" : temp,
+            "Sensacion C"   : sensacion,
+            "Humedad %"     : humedad,
             "Condicion"     : cond,
             "Lluvia mm"     : lluvia,
-            "Viento km/h"   : viento,
-            "Presion hPa"   : presiones[i],
+            "Viento km/h"   : viento_v,
+            "Presion hPa"   : presion,
         })
     return pd.DataFrame(rows)
 
@@ -336,7 +343,7 @@ class App(tk.Tk):
                 url_forecast = (
                     "https://api.openweathermap.org/data/2.5/forecast"
                     "?q=" + urllib.parse.quote(ciudad) +
-                    "&appid=" + api_key + "&units=metric&lang=es&cnt=8"
+                    "&appid=" + api_key + "&units=metric&lang=es&cnt=40"
                 )
                 with urllib.request.urlopen(url_forecast, timeout=8) as r:
                     forecast = json.loads(r.read())
@@ -852,13 +859,98 @@ class App(tk.Tk):
         lb.bind("<Double-Button-1>", lambda e: cargar())
         self._btn_win(win, "Cargar", cargar, ACCENT)
 
+    # ── Limpieza y normalizacion automatica ───────────────────────────────────
+    def _limpiar_y_normalizar(self, df):
+        """Aplica limpieza y normalizacion al DataFrame. Retorna (df_limpio, resumen)."""
+        df = df.copy()
+        pasos = []
+
+        # 1. Duplicados
+        antes = len(df)
+        df.drop_duplicates(inplace=True)
+        df.reset_index(drop=True, inplace=True)
+        n = antes - len(df)
+        if n:
+            pasos.append(f"{n} duplicados eliminados")
+
+        # 2. Filas completamente vacias
+        antes = len(df)
+        df.dropna(how="all", inplace=True)
+        df.reset_index(drop=True, inplace=True)
+        n = antes - len(df)
+        if n:
+            pasos.append(f"{n} filas vacias eliminadas")
+
+        cols_texto = df.select_dtypes(include="object").columns
+        cols_num   = df.select_dtypes(include="number").columns
+
+        # 3. Nulos en texto
+        n = int(df[cols_texto].isnull().sum().sum())
+        if n:
+            df[cols_texto] = df[cols_texto].fillna("Sin datos")
+            pasos.append(f"{n} nulos de texto rellenados")
+
+        # 4. Nulos numericos
+        n = int(df[cols_num].isnull().sum().sum())
+        if n:
+            df[cols_num] = df[cols_num].fillna(0)
+            pasos.append(f"{n} nulos numericos rellenados")
+
+        # 5. Espacios extra
+        n_esp = 0
+        for col in cols_texto:
+            antes_col = df[col].copy()
+            df[col] = df[col].astype(str).str.strip()
+            n_esp += int((antes_col != df[col]).sum())
+        if n_esp:
+            pasos.append(f"{n_esp} espacios eliminados")
+
+        # 6. Title Case + correcciones de categoria
+        CORRECCIONES = {
+            "Salado":     {"salado","SALADO","Saladoo","salados","Salados"},
+            "Dulce":      {"dulce","DULCE","Dulces","dulces"},
+            "Reposteria": {"reposteria","REPOSTERIA","Reposterias","repostería","Repostería"},
+            "Temporada":  {"temporada","TEMPORADA","temporadas"},
+        }
+        n_corr = 0
+        for col in cols_texto:
+            antes_col = df[col].copy()
+            df[col] = df[col].astype(str).str.strip().str.title()
+            for correcto, variantes in CORRECCIONES.items():
+                mask = df[col].isin(variantes)
+                if mask.any():
+                    n_corr += int(mask.sum())
+                    df.loc[mask, col] = correcto
+            n_corr += int((antes_col != df[col]).sum())
+        if n_corr:
+            pasos.append(f"{n_corr} valores estandarizados")
+
+        # 7. Fechas a YYYY-MM-DD
+        n_fechas = 0
+        for col in df.columns:
+            if "fecha" in col.lower() or "date" in col.lower():
+                try:
+                    conv = pd.to_datetime(df[col], errors="coerce")
+                    v = int(conv.notna().sum())
+                    if v:
+                        df[col] = conv.dt.strftime("%Y-%m-%d").fillna(df[col])
+                        n_fechas += v
+                except Exception:
+                    pass
+        if n_fechas:
+            pasos.append(f"{n_fechas} fechas normalizadas")
+
+        resumen = " | ".join(pasos) if pasos else "Sin cambios necesarios"
+        return df, resumen
+
     # ── Tabla ─────────────────────────────────────────────────────────────────
     def _cargar_df(self, df, fuente=""):
-        self.df = df.copy()
+        df_limpio, resumen = self._limpiar_y_normalizar(df)
+        self.df = df_limpio
         self.search_var.set("")
         self._llenar_tabla(self.df)
         self.lbl_fuente.config(text=fuente)
-        self.lbl_status.config(text="Datos cargados: " + fuente)
+        self.lbl_status.config(text=fuente + "  —  " + resumen)
 
     def _llenar_tabla(self, df):
         self.tree.delete(*self.tree.get_children())
