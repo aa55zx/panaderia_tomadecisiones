@@ -1361,13 +1361,13 @@ class App(tk.Tk):
                      vars_="RC = Registros completos   |   TR = Total de registros",
                      calculo=f"{rc:,} / {tr:,} x 100",
                      valor=f"{tcd} %", meta="Meta: >= 95 %", ok=tcd >= 95),
-                dict(num=10, sigla="DPE", color="#9B5A1A",
-                     nombre="Desempeno del Producto Estrella",
+                dict(num=10, sigla="IEP", color="#9B5A1A",
+                     nombre="Indice de Estacionalidad del Producto",
                      objetivo="Si el producto estrella supera el promedio mensual por producto",
-                     formula="DPE = VT_mes / Prom_mensual_producto",
+                     formula="IEP = VT_mes / Prom_mensual_producto",
                      vars_="VT_mes = Ventas en temporada   |   Prom = Promedio mensual",
                      calculo=f"{prod_estrella or 'N/A'} vs promedio mensual",
-                     valor=f"{iep:.2f} x", meta="DPE > 1 = supera el promedio", ok=iep >= 1),
+                     valor=f"{iep:.2f} x", meta="IEP > 1 = supera el promedio", ok=iep >= 1),
                 dict(num=11, sigla="SNP", color="#B03030",
                      nombre="Sentimiento Negativo por Periodo",
                      objetivo="Alertar cuando las quejas de clientes superan el umbral critico",
@@ -1707,6 +1707,326 @@ class App(tk.Tk):
                   ).pack(side="left")
 
         aplicar_filtros()
+
+        # ── Variables ya no usadas (compatibilidad) ───────────────────────
+        _UNUSED_BLOCK_START = True  # marcador temporal
+            "delicioso pan caliente amable rapido",  "frio insipido malo servicio",
+            "esponjoso crujiente barato buenisimo",  "sucio grasoso desabrido",
+            "increible fresco sabroso recomiendo",   "pesado crudo caro",
+            "limpio rapido bueno favorito",          "amargo seco pequeno viejo",
+            "maravilloso suave perfecto encanta",    "terrible tardaron horrible",
+            "esponjoso caliente rico vuelvo",        "frio duro seco",
+            "excelente fresco sabroso genial",       "malo pesimo sucio",
+            "rico delicioso perfecto",               "quemado crudo frio",
+            "bueno fresco rapido",                   "seco insipido malo",
+            "increible esponjoso caliente fresco",   "tarde sucio caro",
+            "recomiendo rico sabroso",               "frio seco duro",
+            "excelente buenisimo amable",            "crudo quemado malo",
+            "fresco caliente delicioso",             "sucio desabrido",
+            "sabroso rico bueno fresco",             "tarde frio seco",
+            "limpio rapido excelente rico",          "grasoso pesado caro",
+            "bueno fresco caliente",                 "viejo seco malo",
+            "genial esponjoso sabroso",              "horrible tarde frio",
+            "delicioso rico fresco",                 "crudo quemado duro",
+            "maravilloso buenisimo limpio",          "malo insipido seco",
+            "encanta favorito rico caliente",        "tarde tardaron sucio",
+            "espectacular fresco sabroso",           "pesado grasoso feo",
+            "vuelvo siempre rico fresco",            "caro pequeno malo",
+            "excelente amable rapido bueno",         "frio seco insipido",
+            "buenisimo esponjoso caliente",          "seco duro crudo",
+        ]
+        cp  = sum(1 for c in DEMO_COMENTS if any(p in c for p in PALABRAS_POSITIVAS))
+        cn  = sum(1 for c in DEMO_COMENTS if any(p in c for p in PALABRAS_NEGATIVAS))
+        tc  = len(DEMO_COMENTS)
+        tsc = round(cp / tc * 100, 1)
+        snp = round(cn / tc * 100, 1)
+
+        # KPI 2 — PVD
+        pvd = round(it / dp, 2)
+
+        # KPI 3 — TPC: categoria lider
+        cat_tot = df_v.groupby(_col_cat)[_col_total].sum()
+        top_cat = cat_tot.idxmax() if not cat_tot.empty else "N/A"
+        tpc     = round(cat_tot[top_cat] / it * 100, 1) if it > 0 and top_cat != "N/A" else 0
+
+        # KPI 4 — IRI: promedio diario de harina
+        iri_harina = round(df_i["harina_kg"].mean(), 2)
+
+        # KPI 5 — TVFS: ventas fin de semana (vie=4, sab=5, dom=6)
+        vfs  = df_v[df_v[_col_dia_sem].isin([4, 5, 6])][_col_total].sum()
+        tvfs = round(vfs / it * 100, 1) if it > 0 else 0
+
+        # KPI 6 — VVC: variacion FDS vs entre semana
+        fds_dia = df_v[df_v[_col_dia_sem].isin([4, 5, 6])].groupby(_col_fecha)[_col_total].sum().mean()
+        sem_dia = df_v[~df_v[_col_dia_sem].isin([4, 5, 6])].groupby(_col_fecha)[_col_total].sum().mean()
+        if pd.isna(fds_dia): fds_dia = 0
+        if pd.isna(sem_dia): sem_dia = 0
+        vvc = round((fds_dia - sem_dia) / sem_dia * 100, 1) if sem_dia > 0 else 0
+
+        # KPI 7 — PMVU: producto lider en unidades
+        prod_cant = df_v.groupby(_col_prod)[_col_cant].sum()
+        pmvu_nom  = prod_cant.idxmax() if not prod_cant.empty else "N/A"
+        pmvu_cant = int(prod_cant.max()) if not prod_cant.empty else 0
+
+        # KPI 8 — IPT: ingreso promedio por transaccion
+        ipt = round(it / nt, 2) if nt > 0 else 0
+
+        # KPI 9 — TCD: calidad de datos
+        tr    = len(df_v) + len(df_i)
+        nulos = int(df_v.isnull().sum().sum()) + int(df_i.isnull().sum().sum())
+        rc    = tr - nulos
+        tcd   = round(rc / tr * 100, 1) if tr > 0 else 0
+
+        # KPI 10 — IEP: estacionalidad del producto mas vendido / o Pan de Muerto
+        n_mes         = max(df_v[_col_mes].nunique(), 1)
+        prom_prod_mes = it / (n_prod * n_mes) if (n_prod * n_mes) > 0 else 1
+        # buscar "Pan de Muerto" o usar el producto mas vendido en total
+        prod_top_total = df_v.groupby(_col_prod)[_col_total].sum()
+        prod_estrella  = "Pan de Muerto" if "Pan de Muerto" in df_v[_col_prod].values else (
+                         prod_top_total.idxmax() if not prod_top_total.empty else None)
+        if prod_estrella:
+            pm_df    = df_v[df_v[_col_prod] == prod_estrella]
+            meses_pm = max(pm_df[_col_mes].nunique(), 1)
+            pm_mens  = pm_df[_col_total].sum() / meses_pm
+            iep      = round(pm_mens / prom_prod_mes, 2)
+        else:
+            iep = 0.0
+
+        # KPI 12 — EUI: eficiencia de insumos
+        tic = df_i["huevo_kg"].sum() + df_i["harina_kg"].sum() + df_i["azucar_kg"].sum()
+        eui = round(it / tic, 2) if tic > 0 else 0
+
+        # ── Definicion de los 12 KPIs ─────────────────────────────────────
+        kpis = [
+            dict(num=1,  sigla="TSC", color="#2D7A4F",
+                 nombre="Tasa de Satisfaccion del Cliente",
+                 objetivo="Medir la percepcion positiva en comentarios de clientes",
+                 formula="TSC = (CP / TC) x 100",
+                 vars_="CP = Comentarios positivos   |   TC = Total comentarios",
+                 calculo=f"{cp} / {tc} x 100",
+                 valor=f"{tsc} %", meta="Meta: >= 70 %",
+                 ok=tsc >= 70),
+            dict(num=2,  sigla="PVD", color="#4A7FA5",
+                 nombre="Promedio de Ventas Diarias",
+                 objetivo="Ingreso promedio generado por dia en el periodo analizado",
+                 formula="PVD = IT / DP",
+                 vars_="IT = Ingresos totales   |   DP = Dias del periodo",
+                 calculo=f"${it:,.0f} / {dp} dias",
+                 valor=f"${pvd:,.2f}", meta=f"Periodo: {dp} dias",
+                 ok=True),
+            dict(num=3,  sigla="TPC", color=ACCENT,
+                 nombre="Participacion de Categoria Lider",
+                 objetivo="Identificar la categoria con mayor peso en las ventas",
+                 formula="TPC = (VC / VT) x 100",
+                 vars_="VC = Ventas de la categoria   |   VT = Ventas totales",
+                 calculo=f"Categoria: {top_cat}",
+                 valor=f"{tpc} %", meta="Lider del catalogo",
+                 ok=True),
+            dict(num=4,  sigla="IRI", color="#2E86AB",
+                 nombre="Indice de Rotacion de Insumos",
+                 objetivo="Kg promedio de harina consumidos por dia de operacion",
+                 formula="IRI = IC / DP",
+                 vars_="IC = Insumo consumido (kg)   |   DP = Dias del periodo",
+                 calculo=f"Promedio diario harina",
+                 valor=f"{iri_harina} kg/dia", meta="Base esperada: ~12 kg/dia",
+                 ok=abs(iri_harina - 12) <= 2),
+            dict(num=5,  sigla="TVFS", color=PURPLE,
+                 nombre="Tasa de Ventas en Fin de Semana",
+                 objetivo="Medir el impacto del fin de semana (Vie-Dom) sobre ventas",
+                 formula="TVFS = (VFS / VT) x 100",
+                 vars_="VFS = Ventas Vie+Sab+Dom   |   VT = Ventas totales",
+                 calculo=f"${vfs:,.0f} / ${it:,.0f} x 100",
+                 valor=f"{tvfs} %", meta="Esperado: 42 - 48 %",
+                 ok=38 <= tvfs <= 55),
+            dict(num=6,  sigla="VVC", color="#8B6914",
+                 nombre="Variacion de Ventas Fin de Semana",
+                 objetivo="Cuantificar el alza de ventas en dias de descanso vs dias habiles",
+                 formula="VVC = ((FDS_dia - ES_dia) / ES_dia) x 100",
+                 vars_="FDS_dia = Promedio diario FDS   |   ES_dia = Promedio entre semana",
+                 calculo=f"(${fds_dia:,.0f} - ${sem_dia:,.0f}) / ${sem_dia:,.0f}",
+                 valor=(f"+{vvc} %" if vvc >= 0 else f"{vvc} %"), meta="Esperado: +10 % a +30 %",
+                 ok=vvc >= 10),
+            dict(num=7,  sigla="PMVU", color="#5B4A8A",
+                 nombre="Producto Mas Vendido por Unidades",
+                 objetivo="Identificar el producto lider en volumen de unidades vendidas",
+                 formula="PMVU = Moda( MAX( SUM(cantidad) ) )",
+                 vars_="cantidad = Unidades vendidas por registro de venta",
+                 calculo=f"MAX de {n_prod} productos distintos",
+                 valor=pmvu_nom, meta=f"{pmvu_cant:,} unidades",
+                 ok=True),
+            dict(num=8,  sigla="IPT", color="#1A6B6B",
+                 nombre="Ingreso Promedio por Transaccion",
+                 objetivo="Cuanto genera en promedio cada registro individual de venta",
+                 formula="IPT = IT / NT",
+                 vars_="IT = Ingresos totales   |   NT = Numero de transacciones",
+                 calculo=f"${it:,.0f} / {nt:,}",
+                 valor=f"${ipt:,.2f}", meta=f"{nt:,} transacciones totales",
+                 ok=True),
+            dict(num=9,  sigla="TCD", color="#2D7A4F",
+                 nombre="Tasa de Calidad de Datos",
+                 objetivo="Medir completitud y limpieza del data lake en MongoDB",
+                 formula="TCD = (RC / TR) x 100",
+                 vars_="RC = Registros completos   |   TR = Total de registros",
+                 calculo=f"{rc:,} / {tr:,} x 100",
+                 valor=f"{tcd} %", meta="Meta: >= 95 %",
+                 ok=tcd >= 95),
+            dict(num=10, sigla="IEP", color="#9B5A1A",
+                 nombre="Indice de Estacionalidad del Producto",
+                 objetivo="Si el producto estrella supera el promedio mensual por producto",
+                 formula="IEP = VT_mes / Prom_mensual_producto",
+                 vars_="VT_mes = Ventas en temporada   |   Prom = Promedio mensual",
+                 calculo=f"{prod_estrella or 'N/A'} vs promedio mensual",
+                 valor=f"{iep:.2f} x", meta="IEP > 1 = supera el promedio",
+                 ok=iep >= 1),
+            dict(num=11, sigla="SNP", color="#B03030",
+                 nombre="Sentimiento Negativo por Periodo",
+                 objetivo="Alertar cuando las quejas de clientes superan el umbral critico",
+                 formula="SNP = (CN / TC) x 100",
+                 vars_="CN = Comentarios negativos   |   TC = Total comentarios",
+                 calculo=f"{cn} / {tc} x 100",
+                 valor=f"{snp} %", meta="Alerta critica si > 20 %",
+                 ok=snp <= 20),
+            dict(num=12, sigla="EUI", color="#4A7A3A",
+                 nombre="Eficiencia de Uso de Insumos",
+                 objetivo="Ingreso generado por cada kg de insumo (huevo+harina+azucar)",
+                 formula="EUI = IT / TIC",
+                 vars_="IT = Ingresos totales   |   TIC = Total insumos consumidos (kg)",
+                 calculo=f"${it:,.0f} / {tic:,.0f} kg",
+                 valor=f"${eui:,.2f} / kg", meta="Mayor valor = mayor eficiencia",
+                 ok=True),
+        ]
+
+        # ── Ventana principal del dashboard ───────────────────────────────
+        win = tk.Toplevel(self)
+        win.title("Dashboard KPIs — Panaderia El Ranchero")
+        win.configure(bg=HDR)
+        win.geometry("1020x720")
+        win.minsize(800, 500)
+
+        # Encabezado
+        tk.Label(win,
+                 text="Dashboard de KPIs — Panaderia El Ranchero",
+                 font=("Segoe UI", 14, "bold"),
+                 bg=HDR, fg=WHITE, pady=10
+                 ).pack(fill="x")
+        ok_count = sum(1 for k in kpis if k["ok"])
+        tk.Label(win,
+                 text=(f"  {len(kpis)} indicadores calculados con datos reales  |  "
+                       f"Fuente: {fuente_label}  |  "
+                       f"Periodo: {dp} dias  |  {nt:,} transacciones  |  "
+                       f"{ok_count}/{len(kpis)} KPIs en rango optimo"),
+                 font=("Segoe UI", 9),
+                 bg=HDR, fg="#C8A080", pady=4
+                 ).pack(fill="x")
+
+        # Marco scrollable
+        outer = tk.Frame(win, bg=BG)
+        outer.pack(fill="both", expand=True)
+        canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
+        vsb    = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        inner = tk.Frame(canvas, bg=BG)
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner(e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas(e):
+            canvas.itemconfig(win_id, width=e.width)
+
+        def _scroll(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+
+        inner.bind("<Configure>", _on_inner)
+        canvas.bind("<Configure>", _on_canvas)
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _scroll))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        inner.columnconfigure(0, weight=1, uniform="col")
+        inner.columnconfigure(1, weight=1, uniform="col")
+
+        # Tarjetas 2 por fila
+        for idx, k in enumerate(kpis):
+            row_f = idx // 2
+            col_f = idx % 2
+
+            card = tk.Frame(inner, bg=WHITE,
+                            highlightthickness=2,
+                            highlightbackground=k["color"])
+            card.grid(row=row_f, column=col_f,
+                      padx=10, pady=8, sticky="nsew")
+
+            # Franja superior de color
+            tk.Frame(card, bg=k["color"], height=5).pack(fill="x")
+
+            body = tk.Frame(card, bg=WHITE, padx=12, pady=8)
+            body.pack(fill="both", expand=True)
+
+            # Fila: numero + sigla + badge OK/REVISAR
+            hrow = tk.Frame(body, bg=WHITE)
+            hrow.pack(fill="x")
+            tk.Label(hrow, text=f" KPI {k['num']} ",
+                     font=("Segoe UI", 8, "bold"),
+                     bg=k["color"], fg=WHITE, pady=2
+                     ).pack(side="left")
+            tk.Label(hrow, text=f"  {k['sigla']}",
+                     font=("Segoe UI", 10, "bold"),
+                     bg=WHITE, fg=k["color"]
+                     ).pack(side="left")
+            badge_bg = SUCCESS if k["ok"] else DANGER
+            tk.Label(hrow,
+                     text=(" OK " if k["ok"] else " REVISAR "),
+                     font=("Segoe UI", 8, "bold"),
+                     bg=badge_bg, fg=WHITE, pady=2
+                     ).pack(side="right")
+
+            # Nombre y objetivo
+            tk.Label(body, text=k["nombre"],
+                     font=("Segoe UI", 10, "bold"),
+                     fg=TEXT, bg=WHITE,
+                     wraplength=380, justify="left"
+                     ).pack(anchor="w", pady=(5, 1))
+            tk.Label(body, text=k["objetivo"],
+                     font=("Segoe UI", 8),
+                     fg=TEXT2, bg=WHITE,
+                     wraplength=380, justify="left"
+                     ).pack(anchor="w")
+
+            # Caja de formula
+            fbox = tk.Frame(body, bg="#F0EBE3",
+                            highlightthickness=1,
+                            highlightbackground=BORDER)
+            fbox.pack(fill="x", pady=(7, 3))
+            tk.Label(fbox, text=k["formula"],
+                     font=("Consolas", 9, "bold"),
+                     fg=k["color"], bg="#F0EBE3",
+                     padx=8, pady=3
+                     ).pack(anchor="w")
+            tk.Label(fbox, text=k["vars_"],
+                     font=("Segoe UI", 8),
+                     fg=TEXT2, bg="#F0EBE3",
+                     padx=8, pady=2
+                     ).pack(anchor="w")
+
+            # Calculo textual
+            tk.Label(body, text="= " + k["calculo"],
+                     font=("Segoe UI", 8),
+                     fg=TEXT2, bg=WHITE
+                     ).pack(anchor="w", pady=(2, 0))
+
+            # Barra de resultado
+            res_bar = tk.Frame(body, bg=k["color"])
+            res_bar.pack(fill="x", pady=(5, 0))
+            tk.Label(res_bar, text=k["valor"],
+                     font=("Segoe UI", 13, "bold"),
+                     fg=WHITE, bg=k["color"], pady=5
+                     ).pack(side="left", padx=10)
+            tk.Label(res_bar, text=k["meta"],
+                     font=("Segoe UI", 8),
+                     fg=WHITE, bg=k["color"]
+                     ).pack(side="right", padx=8)
 
     def _autoconnect(self):
         try:
