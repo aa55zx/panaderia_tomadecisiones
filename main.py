@@ -1,193 +1,893 @@
+"""
+main.py — Panaderia El Ranchero | Sistema de Toma de Decisiones
+Dashboard principal con KPIs en tiempo real desde MongoDB.
+KPIs actualizados segun documento oficial (12 indicadores).
+"""
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import ttk, filedialog, messagebox
 import pandas as pd
-import os
 import json
 import urllib.request
 import urllib.parse
 import random
 from datetime import datetime, timedelta
-from collections import Counter
 from database import Database
 
-# Colores
-BG      = "#F7F3EE"
-HDR     = "#2D1B0E"
-ACCENT  = "#C8622A"
-BLUE    = "#4A7FA5"
-PURPLE  = "#6B4E8A"
-TEXT    = "#1A1008"
-TEXT2   = "#7A5C4A"
-BORDER  = "#DDD0C4"
-ROW_ALT = "#FAF6F2"
-WHITE   = "#FFFFFF"
-SUCCESS = "#2D7A4F"
-WARNING = "#B07D1A"
-DANGER  = "#B03030"
-GOLD    = "#BF8B2E"
+# ══════════════════════════════════════════════════════════════════════════════
+# PALETA DE COLORES
+# ══════════════════════════════════════════════════════════════════════════════
+BG         = "#F4F1ED"
+SIDEBAR    = "#1E1108"
+CARD       = "#FFFFFF"
+ACCENT     = "#C8622A"
+BLUE       = "#2E6FA3"
+GREEN      = "#2A7A50"
+PURPLE     = "#6B4E8A"
+GOLD       = "#B8860B"
+RED        = "#B03030"
+TEAL       = "#1A6B6B"
+BROWN      = "#9B5A1A"
+OLIVE      = "#4A7A3A"
+TEXT       = "#1A1008"
+TEXT2      = "#6B5A4E"
+TEXT_LIGHT = "#A89080"
+BORDER     = "#E0D8D0"
+ROW_ALT    = "#FAF7F4"
+WHITE      = "#FFFFFF"
+HDR_BG     = "#2A1A0C"
+
+CC = [ACCENT, BLUE, PURPLE, GREEN, GOLD, "#2E86AB", TEAL, BROWN, OLIVE, "#5B4A8A", RED, "#8B6914"]
 
 PALABRAS_NEGATIVAS = [
-    "seco","duro","frio","frio","malo","feo","terrible","horrible","pesimo",
+    "seco","duro","frio","malo","feo","terrible","horrible","pesimo",
     "tardaron","tarde","sucio","quemado","crudo","insipido","caro","raro",
     "viejo","desagradable","amargo","salado","grasoso","desabrido","triste",
-    "decepcionante","error","pequeno","viejo","pesado",
+    "decepcionante","error","pequeno","pesado",
 ]
 PALABRAS_POSITIVAS = [
     "rico","delicioso","bueno","excelente","fresco","suave","sabroso","perfecto",
     "increible","maravilloso","espectacular","genial","recomiendo","rapido",
     "amable","limpio","caliente","esponjoso","crujiente","barato","bien",
-    "gracias","encanta","favorito","siempre","vuelvo","buenisimo","rico",
+    "gracias","encanta","favorito","siempre","vuelvo","buenisimo",
 ]
 
-
-# Datos demo de clima para Oaxaca
 CLIMAS_DEMO = [
-    ("Lluvia ligera",  14.2, 12.0, 68, 4.2, "Rain"),
-    ("Nublado",        18.5, 16.0, 55, 2.1, "Clouds"),
-    ("Soleado",        26.3, 24.0, 38, 1.8, "Clear"),
-    ("Tormenta",       13.0, 11.0, 82, 7.5, "Thunderstorm"),
-    ("Frio extremo",    9.8,  7.0, 70, 3.0, "Clouds"),
-    ("Caluroso",       31.5, 29.0, 25, 1.2, "Clear"),
-    ("Nublado",        20.1, 17.5, 60, 2.8, "Clouds"),
-    ("Lluvia fuerte",  12.5, 10.0, 90, 8.0, "Rain"),
-    ("Parcialmente nublado", 23.0, 20.5, 45, 2.0, "Clouds"),
+    ("Lluvia ligera", 14.2, 12.0, 68, 4.2, "Rain"),
+    ("Nublado",       18.5, 16.0, 55, 2.1, "Clouds"),
+    ("Soleado",       26.3, 24.0, 38, 1.8, "Clear"),
+    ("Tormenta",      13.0, 11.0, 82, 7.5, "Thunderstorm"),
+    ("Frio extremo",   9.8,  7.0, 70, 3.0, "Clouds"),
+    ("Caluroso",      31.5, 29.0, 25, 1.2, "Clear"),
 ]
-
-
-def _alerta_ventas(temp, lluvia, condicion):
-    alertas = []
-    if condicion in ("Rain", "Drizzle", "Thunderstorm") or lluvia > 0:
-        alertas.append("Subir produccion pan dulce")
-    if temp < 15:
-        alertas.append("Alta demanda pan y cafe")
-    if temp > 28:
-        alertas.append("Menor demanda pan caliente")
-    return " | ".join(alertas) if alertas else "Demanda normal"
-
 
 def _clima_demo(ciudad):
-    ahora = datetime.now()
-    rows = []
-    n_registros = 48  # cada 30 minutos durante 24 horas
-    for i in range(n_registros):
-        patron = CLIMAS_DEMO[i % len(CLIMAS_DEMO)]
-        cond, tmax, tmin, hum, viento, main = patron
-        momento  = "Ahora" if i == 0 else (ahora + timedelta(minutes=i * 30)).strftime("%Y-%m-%d %H:%M")
-        temp     = round(tmax + random.uniform(-1.5, 1.5), 1)
-        sensacion = round(tmin + random.uniform(-1.0, 1.0), 1)
-        humedad  = min(100, max(0, int(hum + random.randint(-5, 5))))
-        viento_v = round(viento + random.uniform(-0.5, 0.5), 1)
-        presion  = random.randint(1000, 1022)
-        lluvia   = round(random.uniform(0.5, 5.0), 1) if main in ("Rain", "Thunderstorm") else 0.0
-        rows.append({
-            "Momento"       : momento,
-            "Ciudad"        : ciudad,
-            "Temperatura C" : temp,
-            "Sensacion C"   : sensacion,
-            "Humedad %"     : humedad,
-            "Condicion"     : cond,
-            "Lluvia mm"     : lluvia,
-            "Viento km/h"   : viento_v,
-            "Presion hPa"   : presion,
-        })
+    ahora = datetime.now(); rows = []
+    for i in range(48):
+        cond, tmax, tmin, hum, viento, main = CLIMAS_DEMO[i % len(CLIMAS_DEMO)]
+        momento = "Ahora" if i == 0 else (ahora + timedelta(minutes=i*30)).strftime("%Y-%m-%d %H:%M")
+        lluvia  = round(random.uniform(0.5, 5.0), 1) if main in ("Rain","Thunderstorm") else 0.0
+        rows.append({"Momento": momento, "Ciudad": ciudad,
+                     "Temperatura C": round(tmax+random.uniform(-1.5, 1.5), 1),
+                     "Sensacion C":   round(tmin+random.uniform(-1.0, 1.0), 1),
+                     "Humedad %":     min(100, max(0, int(hum+random.randint(-5,5)))),
+                     "Condicion": cond, "Lluvia mm": lluvia,
+                     "Viento km/h":   round(viento+random.uniform(-0.5, 0.5), 1),
+                     "Presion hPa":   random.randint(1000, 1022)})
     return pd.DataFrame(rows)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# HELPERS DE ESTILO
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _card(parent, **kw):
+    d = dict(bg=CARD, padx=0, pady=0, highlightthickness=1, highlightbackground=BORDER)
+    d.update(kw); return tk.Frame(parent, **d)
+
+def _btn(parent, text, cmd, bg=ACCENT, fg=WHITE, size=10, px=18, py=8):
+    return tk.Button(parent, text=text, command=cmd, bg=bg, fg=fg,
+                     relief="flat", cursor="hand2",
+                     font=("Segoe UI", size, "bold"),
+                     activebackground=HDR_BG, activeforeground=WHITE,
+                     padx=px, pady=py)
+
+def _scroll_frame(parent):
+    """Devuelve (canvas, inner_frame) con scroll vertical y rueda del ratón."""
+    cv  = tk.Canvas(parent, bg=BG, highlightthickness=0)
+    vsb = ttk.Scrollbar(parent, orient="vertical", command=cv.yview)
+    cv.configure(yscrollcommand=vsb.set)
+    vsb.pack(side="right", fill="y"); cv.pack(side="left", fill="both", expand=True)
+    inn = tk.Frame(cv, bg=BG)
+    wid = cv.create_window((0,0), window=inn, anchor="nw")
+    inn.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+    cv.bind("<Configure>",  lambda e: cv.itemconfig(wid, width=e.width))
+    cv.bind("<Enter>", lambda e: cv.bind_all("<MouseWheel>",
+        lambda ev: cv.yview_scroll(int(-1*(ev.delta/120)), "units")))
+    cv.bind("<Leave>", lambda e: cv.unbind_all("<MouseWheel>"))
+    return cv, inn
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# APLICACION PRINCIPAL
+# ══════════════════════════════════════════════════════════════════════════════
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Panaderia El Ranchero")
-        self.geometry("1150x700")
-        self.minsize(900, 520)
+        self.title("Panaderia El Ranchero — Sistema de Decisiones")
+        self.geometry("1380x820")
+        self.minsize(1024, 700)
         self.configure(bg=BG)
-        self.db  = Database()
-        self.df  = None
-
+        self.db         = Database()
+        self.df         = None
+        self._df_fuente = ""
+        self._cur_page  = None
         self._setup_styles()
-        self._build_ui()
+        self._build_shell()
         self._autoconnect()
+        self._show_page("dashboard")
 
+    # ──────────────────────────────────────────────────────────────────────────
     def _setup_styles(self):
-        s = ttk.Style(self)
-        s.theme_use("clam")
-        s.configure("App.Treeview",
-                    background=WHITE, foreground=TEXT,
-                    fieldbackground=WHITE, rowheight=30,
-                    font=("Segoe UI", 10), borderwidth=0)
-        s.configure("App.Treeview.Heading",
-                    background=HDR, foreground=WHITE,
-                    font=("Segoe UI", 10, "bold"), relief="flat", padding=[10,8])
+        s = ttk.Style(self); s.theme_use("clam")
+        s.configure("App.Treeview", background=WHITE, foreground=TEXT,
+                    fieldbackground=WHITE, rowheight=28, font=("Segoe UI",10), borderwidth=0)
+        s.configure("App.Treeview.Heading", background=HDR_BG, foreground=WHITE,
+                    font=("Segoe UI",10,"bold"), relief="flat", padding=[10,6])
         s.map("App.Treeview",
-              background=[("selected", ACCENT)],
-              foreground=[("selected", WHITE)])
-        s.configure("TScrollbar", background=BORDER,
-                    troughcolor=BG, borderwidth=0, relief="flat")
+              background=[("selected",ACCENT)], foreground=[("selected",WHITE)])
+        s.configure("TScrollbar", background=BORDER, troughcolor=BG, borderwidth=0, relief="flat")
 
-    def _build_ui(self):
-        # Encabezado
-        hdr = tk.Frame(self, bg=HDR, pady=14)
-        hdr.pack(fill="x")
-        tk.Label(hdr, text="Panaderia El Ranchero",
-                 font=("Segoe UI", 16, "bold"),
-                 bg=HDR, fg=WHITE).pack(side="left", padx=24)
-        self.lbl_fuente = tk.Label(hdr, text="Sin datos cargados",
-                                   font=("Segoe UI", 10),
-                                   bg=HDR, fg="#C8A080")
-        self.lbl_fuente.pack(side="right", padx=24)
+    # ──────────────────────────────────────────────────────────────────────────
+    def _build_shell(self):
+        # Sidebar
+        self.sidebar = tk.Frame(self, bg=SIDEBAR, width=220)
+        self.sidebar.pack(side="left", fill="y"); self.sidebar.pack_propagate(False)
+        logo_f = tk.Frame(self.sidebar, bg=SIDEBAR, pady=24); logo_f.pack(fill="x")
+        tk.Label(logo_f, text="🍞", font=("Segoe UI",28), bg=SIDEBAR, fg=WHITE).pack()
+        tk.Label(logo_f, text="El Ranchero", font=("Segoe UI",13,"bold"),
+                 bg=SIDEBAR, fg=WHITE).pack()
+        tk.Label(logo_f, text="Sistema de Decisiones", font=("Segoe UI",8),
+                 bg=SIDEBAR, fg=TEXT_LIGHT).pack()
+        tk.Frame(self.sidebar, bg="#3A2A1A", height=1).pack(fill="x", padx=18)
 
-        # Barra de botones
-        bar = tk.Frame(self, bg=BG, pady=14)
-        bar.pack(fill="x", padx=20)
+        nav_items = [
+            ("dashboard",   "📊  Dashboard",      "Resumen ejecutivo"),
+            ("datos",       "🗄️  Datos",           "Importar y explorar"),
+            ("kpis",        "📈  KPIs Detallados", "12 indicadores clave"),
+            ("comentarios", "💬  Comentarios",     "Análisis de opinión"),
+            ("clima",       "🌤️  Clima",           "Impacto climático"),
+        ]
+        self._nav_btns = {}
+        nav_f = tk.Frame(self.sidebar, bg=SIDEBAR); nav_f.pack(fill="x", pady=(12,0))
+        for key, label, desc in nav_items:
+            bf  = tk.Frame(nav_f, bg=SIDEBAR, cursor="hand2"); bf.pack(fill="x")
+            ind = tk.Frame(bf, bg=SIDEBAR, width=4); ind.pack(side="left", fill="y")
+            inn = tk.Frame(bf, bg=SIDEBAR, padx=14, pady=10)
+            inn.pack(side="left", fill="x", expand=True)
+            lm  = tk.Label(inn, text=label, font=("Segoe UI",10,"bold"),
+                           bg=SIDEBAR, fg=WHITE, anchor="w"); lm.pack(fill="x")
+            ld  = tk.Label(inn, text=desc, font=("Segoe UI",8),
+                           bg=SIDEBAR, fg=TEXT_LIGHT, anchor="w"); ld.pack(fill="x")
+            for w in (bf,ind,inn,lm,ld):
+                w.bind("<Button-1>", lambda e,k=key: self._show_page(k))
+                w.configure(cursor="hand2")
+            self._nav_btns[key] = (bf, ind, lm, ld)
 
-        def btn(text, desc, cmd, color):
-            outer = tk.Frame(bar, bg=BG)
-            outer.pack(side="left", padx=(0,10))
-            tk.Button(outer, text=text, command=cmd,
-                      bg=color, fg=WHITE, relief="flat",
-                      font=("Segoe UI", 10, "bold"),
-                      cursor="hand2", padx=16, pady=9,
-                      activebackground=HDR, activeforeground=WHITE
-                      ).pack()
-            tk.Label(outer, text=desc, font=("Segoe UI", 8),
-                     fg=TEXT2, bg=BG).pack(pady=(3,0))
+        tk.Frame(self.sidebar, bg="#3A2A1A", height=1).pack(
+            fill="x", padx=18, side="bottom", pady=(0,8))
+        self.lbl_conn = tk.Label(self.sidebar, text="⚫  Conectando...",
+                                 font=("Segoe UI",8), bg=SIDEBAR, fg=TEXT_LIGHT,
+                                 wraplength=190, justify="left")
+        self.lbl_conn.pack(side="bottom", padx=16, pady=(0,12), anchor="w")
 
-        btn("Base de Datos",  "Tablas de la BD",         self.importar_bd,         ACCENT)
-        btn("Excel",          "Archivo .xlsx / .xls",    self.importar_excel,       ACCENT)
-        btn("URL / CSV",      "Datos desde internet",    self.importar_externo,     BLUE)
-        btn("Clima",          "OpenWeather en tiempo real", self.importar_clima,    "#2E86AB")
-        btn("Comentarios",    "Analizar redes sociales", self.analizar_comentarios, PURPLE)
-        btn("Calidad de Datos", "Explorar, limpiar y normalizar", self.calidad_datos, SUCCESS)
-        btn("MongoDB",          "Guardar en MongoDB",              self.guardar_en_mongo, "#13AA52")
-        btn("KPIs",             "Indicadores clave",               self.ver_kpis,          GOLD)
+        # Contenido principal
+        self.content = tk.Frame(self, bg=BG); self.content.pack(side="left", fill="both", expand=True)
+        topbar = tk.Frame(self.content, bg=WHITE,
+                          highlightthickness=1, highlightbackground=BORDER)
+        topbar.pack(fill="x")
+        self.lbl_page_title = tk.Label(topbar, text="Dashboard",
+                                       font=("Segoe UI",14,"bold"),
+                                       bg=WHITE, fg=TEXT, padx=24, pady=14)
+        self.lbl_page_title.pack(side="left")
+        self.lbl_page_sub = tk.Label(topbar, text="", font=("Segoe UI",9),
+                                     bg=WHITE, fg=TEXT2, padx=4)
+        self.lbl_page_sub.pack(side="left")
+        self.lbl_update = tk.Label(topbar, text="", font=("Segoe UI",8),
+                                   bg=WHITE, fg=TEXT_LIGHT, padx=16)
+        self.lbl_update.pack(side="right")
+        self.page_frame = tk.Frame(self.content, bg=BG)
+        self.page_frame.pack(fill="both", expand=True)
 
-        tk.Frame(bar, bg=BORDER, width=1).pack(side="left", fill="y", padx=14)
-        info = tk.Frame(bar, bg=BG)
-        info.pack(side="left")
-        self.lbl_filas = tk.Label(info, text="", font=("Segoe UI", 10, "bold"),
-                                  fg=ACCENT, bg=BG)
-        self.lbl_filas.pack(anchor="w")
-        self.lbl_cols  = tk.Label(info, text="", font=("Segoe UI", 9),
-                                  fg=TEXT2, bg=BG)
-        self.lbl_cols.pack(anchor="w")
+    # ──────────────────────────────────────────────────────────────────────────
+    def _show_page(self, key):
+        self._cur_page = key
+        for k, (bf,ind,lm,ld) in self._nav_btns.items():
+            active = (k == key)
+            col = "#3A2010" if active else SIDEBAR
+            bf.configure(bg=col); ind.configure(bg=ACCENT if active else SIDEBAR)
+            lm.configure(bg=col, fg=WHITE)
+            ld.configure(bg=col, fg="#E0C0A0" if active else TEXT_LIGHT)
+        for w in self.page_frame.winfo_children(): w.destroy()
+        self.page_frame.update_idletasks()
+        titles = {
+            "dashboard":   ("Dashboard",       "Resumen ejecutivo en tiempo real"),
+            "datos":       ("Datos",           "Importar y explorar conjuntos de datos"),
+            "kpis":        ("KPIs Detallados", "12 indicadores clave de rendimiento"),
+            "comentarios": ("Comentarios",     "Análisis de sentimiento de clientes"),
+            "clima":       ("Clima",           "Condiciones climáticas y su impacto"),
+        }
+        title, sub = titles.get(key, (key.capitalize(), ""))
+        self.lbl_page_title.config(text=title)
+        self.lbl_page_sub.config(text=sub)
+        {"dashboard": self._page_dashboard, "datos": self._page_datos,
+         "kpis": self._page_kpis, "comentarios": self._page_comentarios,
+         "clima": self._page_clima}.get(key, lambda: None)()
 
-        sf = tk.Frame(bar, bg=BG)
-        sf.pack(side="right")
-        tk.Label(sf, text="Buscar:", font=("Segoe UI", 10),
-                 fg=TEXT2, bg=BG).pack(side="left")
+    # ══════════════════════════════════════════════════════════════════════════
+    # CÁLCULO DE KPIs — FÓRMULAS OFICIALES DEL PDF
+    # ══════════════════════════════════════════════════════════════════════════
+    def _calcular_kpis(self):
+        if not self.db.is_connected or not self.db.is_panaderia_ready():
+            return None
+        try:
+            df_v = self.db.read_table("Ventas")
+            df_i = self.db.read_table("Insumos")
+        except Exception:
+            return None
+        if df_v.empty:
+            return None
+
+        def _num(s): return pd.to_numeric(s, errors="coerce").fillna(0)
+        df_v["_total"] = _num(df_v["total"])
+        df_v["_cant"]  = _num(df_v["cantidad"])
+        df_v["_fdt"]   = pd.to_datetime(df_v["fecha"], errors="coerce")
+        df_v["_fecha"] = df_v["fecha"].astype(str)
+        df_v["_dsem"]  = df_v["_fdt"].dt.dayofweek.fillna(0).astype(int)
+        df_v["_mes"]   = df_v["_fdt"].dt.month.fillna(1).astype(int)
+        df_v["_sem"]   = df_v["_fdt"].dt.isocalendar().week.fillna(0).astype(int)
+
+        df_i["huevo_kg"]  = _num(df_i.get("huevo_kg",  pd.Series(dtype=float)))
+        df_i["harina_kg"] = _num(df_i.get("harina_kg", pd.Series(dtype=float)))
+        df_i["azucar_kg"] = _num(df_i.get("azucar_kg", pd.Series(dtype=float)))
+
+        it  = df_v["_total"].sum()
+        dp  = max(df_v["_fecha"].nunique(), 1)
+        nt  = len(df_v)
+        np_ = df_v["producto"].nunique()
+
+        # ── KPI 1: TSC — Tasa de Satisfacción del Cliente ─────────────────────
+        # Usa calificacion (1-5) como fuente primaria; texto como respaldo
+        tc = cp = cn = 0
+        califs = []          # lista de calificaciones numéricas
+        fuente_com = "Sin colección Comentarios"
+        try:
+            df_com = self.db.read_table("Comentarios")
+            if not df_com.empty:
+                # ── Columna de calificación numérica ──────────────────────────
+                col_cal = next((c for c in df_com.columns
+                                if any(k in c.lower() for k in
+                                       ["calificacion","calificación","rating",
+                                        "puntuacion","puntuación","score","stars"])), None)
+                # ── Columna de texto (excluye campos que sean IDs numéricos) ──
+                col_c = next((c for c in df_com.columns
+                              if (any(k in c.lower() for k in
+                                     ["comentario","texto","comment","resena","opinion"])
+                                  and not c.lower().endswith("_id"))), None)
+
+                tc = len(df_com)
+                fuente_com = f"{tc} registros reales"
+
+                # Prioridad 1: calificación numérica
+                if col_cal:
+                    califs = pd.to_numeric(df_com[col_cal], errors="coerce").dropna().tolist()
+                    # 4-5 = positivo, 1-2 = negativo, 3 = neutro (escala 1-5)
+                    cp = sum(1 for v in califs if v >= 4)
+                    cn = sum(1 for v in califs if v <= 2)
+                    tc = len(califs) if califs else tc
+                    fuente_com = f"{tc} calificaciones (campo '{col_cal}')"
+
+                # Prioridad 2 / complemento: análisis de texto
+                if col_c and not califs:
+                    txts = df_com[col_c].dropna().astype(str).tolist()
+                    tc   = len(txts)
+                    cp   = sum(1 for t in txts if any(p in t.lower() for p in PALABRAS_POSITIVAS))
+                    cn   = sum(1 for t in txts if any(p in t.lower() for p in PALABRAS_NEGATIVAS))
+                    fuente_com = f"{tc} comentarios de texto"
+        except Exception:
+            pass
+        tsc = round(cp / tc * 100, 1) if tc else None
+        cal_prom = round(sum(califs) / len(califs), 2) if califs else None
+
+        # ── KPI 2: PVC — Proyección de Ventas por Día ─────────────────────────
+        # PVC = PMC + Ingresos Extraordinarios + ajuste Días Especiales
+        # Implementado como: promedio diario ajustado (PMC) + 5% festivos
+        pmc = round(it / dp, 2)
+        dias_especiales_adj = round(pmc * 0.05, 2)   # ajuste estimado 5%
+        pvc = round(pmc + dias_especiales_adj, 2)
+
+        # ── KPI 3: TCL — Tendencia de Categoría Líder ─────────────────────────
+        cat_tot = df_v.groupby("categoria")["_total"].sum()
+        top_cat = cat_tot.idxmax() if not cat_tot.empty else "N/A"
+        tcl     = round(cat_tot[top_cat] / it * 100, 1) if it and top_cat != "N/A" else 0
+
+        # ── KPI 4: RDI — Ratio de Rotación de Insumos ─────────────────────────
+        # RDI = Total harina consumida / DP
+        total_harina = df_i["harina_kg"].sum() if not df_i.empty else 0
+        rdi          = round(total_harina / dp, 2)
+
+        # ── KPI 5: TVFS — Tasa de Variación en Fin de Semana ──────────────────
+        # TVFS = ((VFS_actual - VFS_ant) / VFS_ant) × 100
+        # Dividimos semanas por número de semana
+        fds_mask = df_v["_dsem"].isin([4,5,6])
+        df_fds   = df_v[fds_mask].copy()
+        semanas  = sorted(df_fds["_sem"].unique())
+        if len(semanas) >= 2:
+            vfs_act = df_fds[df_fds["_sem"] == semanas[-1]]["_total"].sum()
+            vfs_ant = df_fds[df_fds["_sem"] == semanas[-2]]["_total"].sum()
+            tvfs    = round((vfs_act - vfs_ant) / vfs_ant * 100, 1) if vfs_ant else 0
+        else:
+            vfs_tot = df_fds["_total"].sum()
+            vfs_act = vfs_tot; vfs_ant = 0
+            tvfs    = 0
+        tvfs_ok  = tvfs >= 0   # crecimiento o estable
+
+        # ── KPI 6: VVC — Variación de Ventas por Categoría (Fin de Semana) ────
+        # RAC = CVFS_dia - PV_dia - EV_dia
+        cvfs_dia = df_fds["_total"].sum() / max(len(semanas),1) / 3  # prom diario FDS
+        pv_dia   = round(it / dp, 2)
+        ev_dia   = round(pv_dia * 0.03, 2)   # estimado eventos extra 3%
+        rac      = round(cvfs_dia - pv_dia - ev_dia, 2)
+        vvc_ok   = rac > 0
+
+        # ── KPI 7: PMVU — Producto Más Vendido por Unidades ───────────────────
+        pc   = df_v.groupby("producto")["_cant"].sum()
+        pnom = pc.idxmax() if not pc.empty else "N/A"
+        pcan = int(pc.max()) if not pc.empty else 0
+
+        # ── KPI 8: IPT — Ingreso Promedio por Transacción ─────────────────────
+        ipt = round(it / nt, 2) if nt else 0
+
+        # ── KPI 9: TCD — Tasa de Calidad de Datos ─────────────────────────────
+        tr    = len(df_v) + len(df_i)
+        nulos = int(df_v.isnull().sum().sum()) + int(df_i.isnull().sum().sum())
+        rc    = tr - nulos
+        tcd   = round(rc / tr * 100, 1) if tr else 0
+
+        # ── KPI 10: IEP — Índice de Estacionalidad del Producto ───────────────
+        # IEP = VS_mes / IM  (ventas mes evaluado / promedio mensual del producto)
+        nm   = max(df_v["_mes"].nunique(), 1)
+        ppm  = it / (np_ * nm) if np_ * nm else 1
+        pt   = df_v.groupby("producto")["_total"].sum()
+        pe   = pt.idxmax() if not pt.empty else None
+        iep  = 0.0
+        if pe:
+            pm_df = df_v[df_v["producto"] == pe]
+            iep   = round((pm_df["_total"].sum() / max(pm_df["_mes"].nunique(),1)) / ppm, 2)
+
+        # ── KPI 11: SNP — Sentimiento Negativo por Periodo ────────────────────
+        snp = round(cn / tc * 100, 1) if tc else None
+
+        # ── KPI 12: CIB — Costo de Uso de Insumos (ingreso por kg) ───────────
+        # CIB = IT / TC  (ingresos totales / total insumos en kg)
+        tic = df_i["huevo_kg"].sum() + df_i["harina_kg"].sum() + df_i["azucar_kg"].sum()
+        cib = round(it / tic, 2) if tic else 0
+
+        # DataFrames para gráficos
+        daily = df_v.groupby("_fecha")["_total"].sum().sort_index()
+        cat_data = cat_tot.sort_values(ascending=False)
+        prod5    = pc.sort_values(ascending=False).head(5)
+
+        return dict(
+            it=it, dp=dp, nt=nt, np=np_,
+            # KPI 1
+            tsc=tsc, tc=tc, cp=cp, cn=cn, fuente_com=fuente_com, cal_prom=cal_prom,
+            # KPI 2
+            pvc=pvc, pmc=pmc, dias_adj=dias_especiales_adj,
+            # KPI 3
+            tcl=tcl, top_cat=top_cat,
+            # KPI 4
+            rdi=rdi, total_harina=total_harina,
+            # KPI 5
+            tvfs=tvfs, vfs_act=vfs_act, vfs_ant=vfs_ant, tvfs_ok=tvfs_ok,
+            # KPI 6
+            rac=rac, cvfs_dia=cvfs_dia, pv_dia=pv_dia, ev_dia=ev_dia, vvc_ok=vvc_ok,
+            # KPI 7
+            pnom=pnom, pcan=pcan,
+            # KPI 8
+            ipt=ipt,
+            # KPI 9
+            tcd=tcd, rc=rc, tr=tr,
+            # KPI 10
+            iep=iep, pe=pe,
+            # KPI 11
+            snp=snp,
+            # KPI 12
+            cib=cib, tic=tic,
+            # Gráficos
+            daily=daily, cat_data=cat_data, prod5=prod5,
+        )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PÁGINA: DASHBOARD
+    # ══════════════════════════════════════════════════════════════════════════
+    def _page_dashboard(self):
+        try:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            import matplotlib.ticker as mticker
+            HAS_MPL = True
+        except ImportError:
+            HAS_MPL = False
+
+        abar = tk.Frame(self.page_frame, bg=BG, pady=10); abar.pack(fill="x", padx=24)
+        lbl_status = tk.Label(abar, text="", font=("Segoe UI",9), bg=BG, fg=TEXT2)
+        lbl_status.pack(side="left")
+        _btn(abar, "↻  Actualizar", lambda: self._show_page("dashboard"),
+             bg=ACCENT, size=9, px=14, py=6).pack(side="right")
+
+        k = self._calcular_kpis()
+        if k is None:
+            self._render_no_data(self.page_frame); return
+
+        ts = datetime.now().strftime("%d/%m/%Y  %H:%M:%S")
+        self.lbl_update.config(text=f"Última actualización:  {ts}")
+        lbl_status.config(text=f"MongoDB  |  {k['nt']:,} transacciones  |  {k['dp']} días", fg=GREEN)
+
+        _, inn = _scroll_frame(self.page_frame)
+        pad = 20
+
+        # ── Fila 1: 4 métricas resumen ────────────────────────────────────────
+        f1 = tk.Frame(inn, bg=BG); f1.pack(fill="x", padx=pad, pady=(pad,8))
+        for label, valor, icon, color, detalle in [
+            ("Ingresos Totales",   f"${k['it']:,.0f}", "💰", GREEN,  f"{k['dp']} días"),
+            ("Transacciones",      f"{k['nt']:,}",     "🧾", BLUE,   f"${k['ipt']:,.0f} por transacción"),
+            ("Proyección Diaria",  f"${k['pvc']:,.0f}","📅", ACCENT, "PVC ajustado"),
+            ("Categoría Líder",    k['top_cat'],       "🏆", GOLD,   f"{k['tcl']}% de ventas totales"),
+        ]:
+            c = _card(f1); c.pack(side="left", fill="both", expand=True, padx=(0,10))
+            tk.Frame(c, bg=color, height=4).pack(fill="x")
+            b = tk.Frame(c, bg=CARD, padx=18, pady=14); b.pack(fill="both", expand=True)
+            rt = tk.Frame(b, bg=CARD); rt.pack(fill="x")
+            tk.Label(rt, text=icon, font=("Segoe UI",18), bg=CARD, fg=color).pack(side="left")
+            rf = tk.Frame(rt, bg=CARD); rf.pack(side="right", fill="x", expand=True)
+            tk.Label(rf, text=valor, font=("Segoe UI",20,"bold"),
+                     bg=CARD, fg=TEXT, anchor="e").pack(fill="x")
+            tk.Label(b, text=label, font=("Segoe UI",9,"bold"),
+                     bg=CARD, fg=TEXT2, anchor="w").pack(fill="x", pady=(6,0))
+            tk.Label(b, text=detalle, font=("Segoe UI",8),
+                     bg=CARD, fg=TEXT_LIGHT, anchor="w").pack(fill="x")
+
+        # ── Fila 2: gráfico + semáforo de los 12 KPIs ─────────────────────────
+        f2 = tk.Frame(inn, bg=BG); f2.pack(fill="x", padx=pad, pady=(0,8))
+
+        # Gráfico tendencia
+        chart_c = _card(f2); chart_c.pack(side="left", fill="both", expand=True, padx=(0,10))
+        tk.Frame(chart_c, bg=BLUE, height=4).pack(fill="x")
+        ch = tk.Frame(chart_c, bg=CARD, padx=18, pady=12); ch.pack(fill="x")
+        tk.Label(ch, text="Tendencia de Ventas Diarias",
+                 font=("Segoe UI",11,"bold"), bg=CARD, fg=TEXT).pack(side="left")
+        tk.Label(ch, text=f"Últimos {k['dp']} días",
+                 font=("Segoe UI",8), bg=CARD, fg=TEXT_LIGHT).pack(side="right")
+        if HAS_MPL and len(k["daily"]) >= 2:
+            fig1 = Figure(figsize=(6.5, 2.6), facecolor=CARD, dpi=96)
+            fig1.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.22)
+            ax = fig1.add_subplot(111)
+            daily = k["daily"]; x = range(len(daily))
+            ax.plot(x, daily.values, color=BLUE, linewidth=2.2,
+                    marker="o", markersize=3.5, markerfacecolor=WHITE,
+                    markeredgewidth=1.5, markeredgecolor=BLUE)
+            ax.fill_between(x, daily.values, alpha=0.10, color=BLUE)
+            lbs = list(daily.index); step = max(1, len(lbs)//8)
+            ax.set_xticks(list(x)[::step])
+            ax.set_xticklabels(lbs[::step], rotation=30, ha="right", fontsize=7, color=TEXT2)
+            ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v,_: f"${v/1000:.0f}k"))
+            ax.tick_params(axis="y", labelsize=7, colors=TEXT2)
+            ax.set_facecolor(CARD)
+            for sp in ax.spines.values(): sp.set_visible(False)
+            ax.yaxis.grid(True, color=BORDER, linewidth=0.6, alpha=0.8)
+            ax.set_axisbelow(True)
+            cv1 = FigureCanvasTkAgg(fig1, master=chart_c)
+            cv1.draw(); cv1.get_tk_widget().pack(fill="both", padx=4, pady=(0,10))
+        else:
+            tk.Label(chart_c, text="Instala matplotlib:\n  pip install matplotlib",
+                     font=("Segoe UI",9), bg=CARD, fg=TEXT2, pady=40).pack()
+
+        # Panel semáforo — los 12 KPIs con sus nombres del PDF
+        kp = tk.Frame(f2, bg=BG, width=280); kp.pack(side="right", fill="both")
+        kp.pack_propagate(False)
+        tk.Label(kp, text="Estado de los 12 KPIs", font=("Segoe UI",10,"bold"),
+                 bg=BG, fg=TEXT).pack(anchor="w", padx=2, pady=(0,4))
+        # Canvas con scroll para que quepan los 12 KPIs sin que nada los tape
+        kpi_cv  = tk.Canvas(kp, bg=BG, highlightthickness=0)
+        kpi_vsb = ttk.Scrollbar(kp, orient="vertical", command=kpi_cv.yview)
+        kpi_cv.configure(yscrollcommand=kpi_vsb.set)
+        kpi_vsb.pack(side="right", fill="y")
+        kpi_cv.pack(side="left", fill="both", expand=True)
+        kpi_inner = tk.Frame(kpi_cv, bg=BG)
+        kpi_wid = kpi_cv.create_window((0, 0), window=kpi_inner, anchor="nw")
+        kpi_inner.bind("<Configure>", lambda e: kpi_cv.configure(
+            scrollregion=kpi_cv.bbox("all")))
+        kpi_cv.bind("<Configure>", lambda e: kpi_cv.itemconfig(kpi_wid, width=e.width))
+        kpi_cv.bind("<Enter>", lambda e: kpi_cv.bind_all("<MouseWheel>",
+            lambda ev: kpi_cv.yview_scroll(int(-1*(ev.delta/120)), "units")))
+        kpi_cv.bind("<Leave>", lambda e: kpi_cv.unbind_all("<MouseWheel>"))
+        kp = kpi_inner  # redirigir el resto del código al frame interno
+
+        semaforo_items = [
+            ("TSC",  "Satisfacción Cliente",
+             f"{k['tsc']}%" if k['tsc'] is not None else "N/D",
+             k['tsc'] is not None and k['tsc'] >= 70,
+             f"≥4 estrellas | Prom: {k['cal_prom']}/5" if k['cal_prom'] else "≥ 70%"),
+            ("PVC",  "Proyección Ventas/Día",
+             f"${k['pvc']:,.0f}", True, f"PMC ${k['pmc']:,.0f}"),
+            ("TCL",  "Categoría Líder",
+             f"{k['tcl']}%", k['tcl'] >= 25, "≥ 25%"),
+            ("RDI",  "Rotación Insumos",
+             f"{k['rdi']:.1f} kg/día", k['rdi'] >= 12, "≥ 12 kg/día"),
+            ("TVFS", "Var. Fin de Semana",
+             f"{k['tvfs']:+.1f}%", k['tvfs_ok'], "≥ 0%"),
+            ("VVC",  "Var. Ventas Cat.",
+             f"${k['rac']:,.0f}", k['vvc_ok'], "> $0"),
+            ("PMVU", "Prod. + Vendido",
+             k['pnom'][:12], True, f"{k['pcan']:,} u"),
+            ("IPT",  "Ingreso/Transacción",
+             f"${k['ipt']:,.0f}", True, f"{k['nt']:,} transac."),
+            ("TCD",  "Calidad de Datos",
+             f"{k['tcd']}%", k['tcd'] >= 95, "≥ 95%"),
+            ("IEP",  "Estacionalidad Prod.",
+             f"{k['iep']:.2f}×", k['iep'] >= 1, "> 1×"),
+            ("SNP",  "Sentim. Negativo",
+             f"{k['snp']}%" if k['snp'] is not None else "N/D",
+             k['snp'] is not None and k['snp'] <= 20, "≤ 20%"),
+            ("CIB",  "Costo Uso Insumos",
+             f"${k['cib']:,.2f}/kg", k['cib'] > 0, "Mayor = mejor"),
+        ]
+        for sigla, nombre, valor, ok, meta in semaforo_items:
+            ic = _card(kp); ic.pack(fill="x", pady=(0,4))
+            dot = GREEN if ok else RED
+            b2 = tk.Frame(ic, bg=CARD, padx=10, pady=5); b2.pack(fill="x")
+            # Indicador de color lateral
+            tk.Frame(b2, bg=dot, width=3).pack(side="left", fill="y", padx=(0,8))
+            l2 = tk.Frame(b2, bg=CARD); l2.pack(side="left", fill="x", expand=True)
+            tk.Label(l2, text=sigla, font=("Segoe UI",8,"bold"),
+                     bg=CARD, fg=dot, anchor="w").pack(fill="x")
+            tk.Label(l2, text=nombre, font=("Segoe UI",7),
+                     bg=CARD, fg=TEXT2, anchor="w").pack(fill="x")
+            r2 = tk.Frame(b2, bg=CARD); r2.pack(side="right")
+            tk.Label(r2, text=valor, font=("Segoe UI",9,"bold"),
+                     bg=CARD, fg=dot).pack(anchor="e")
+            tk.Label(r2, text=meta, font=("Segoe UI",7),
+                     bg=CARD, fg=TEXT_LIGHT).pack(anchor="e")
+
+        # ── Fila 3: categorías + donut productos ──────────────────────────────
+        if HAS_MPL:
+            f3 = tk.Frame(inn, bg=BG); f3.pack(fill="x", padx=pad, pady=(0,pad))
+
+            cc = _card(f3); cc.pack(side="left", fill="both", expand=True, padx=(0,10))
+            tk.Frame(cc, bg=ACCENT, height=4).pack(fill="x")
+            tk.Label(cc, text="Ventas por Categoría — TCL",
+                     font=("Segoe UI",11,"bold"), bg=CARD, fg=TEXT,
+                     padx=18, pady=12).pack(anchor="w")
+            cat = k["cat_data"]
+            n_cats = len(k["cat_data"]) if not k["cat_data"].empty else 1
+            fig2_h = max(2.4, n_cats * 0.38)
+            fig2 = Figure(figsize=(4.5, fig2_h), facecolor=CARD, dpi=96)
+            # Margen izquierdo proporcional al largo de la etiqueta más larga
+            max_lbl = max((len(str(lb)) for lb in k["cat_data"].index), default=8)
+            left_margin = min(0.55, max(0.30, max_lbl * 0.022))
+            fig2.subplots_adjust(left=left_margin, right=0.97, top=0.97, bottom=0.05)
+            ax2 = fig2.add_subplot(111)
+            if not cat.empty:
+                cols2 = [CC[i%len(CC)] for i in range(len(cat))]
+                bars  = ax2.barh(cat.index.tolist(), cat.values, color=cols2, height=0.55)
+                for bar, val in zip(bars, cat.values):
+                    ax2.text(bar.get_width()+max(cat.values)*0.01,
+                             bar.get_y()+bar.get_height()/2,
+                             f"${val/1000:.1f}k", va="center", fontsize=7, color=TEXT2)
+                ax2.xaxis.set_visible(False)
+                ax2.tick_params(axis="y", labelsize=8, colors=TEXT)
+            ax2.set_facecolor(CARD)
+            for sp in ax2.spines.values(): sp.set_visible(False)
+            cv2 = FigureCanvasTkAgg(fig2, master=cc); cv2.draw()
+            cv2.get_tk_widget().pack(fill="both", padx=4, pady=(0,10))
+
+            pc2 = _card(f3); pc2.pack(side="left", fill="both", expand=True)
+            tk.Frame(pc2, bg=PURPLE, height=4).pack(fill="x")
+            tk.Label(pc2, text="Top 5 Productos — PMVU",
+                     font=("Segoe UI",11,"bold"), bg=CARD, fg=TEXT,
+                     padx=18, pady=12).pack(anchor="w")
+            p5   = k["prod5"]
+            fig3 = Figure(figsize=(4.5, 2.4), facecolor=CARD, dpi=96)
+            fig3.subplots_adjust(left=0.02, right=0.98, top=0.95, bottom=0.05)
+            ax3 = fig3.add_subplot(111)
+            if not p5.empty:
+                pc3 = [CC[i%len(CC)] for i in range(len(p5))]
+                _, _, at = ax3.pie(
+                    p5.values, labels=[str(p)[:14] for p in p5.index],
+                    colors=pc3, autopct="%1.0f%%", startangle=90,
+                    wedgeprops={"width":0.55,"edgecolor":CARD,"linewidth":2},
+                    textprops={"fontsize":7,"color":TEXT})
+                for a in at: a.set_fontsize(7); a.set_color(WHITE)
+            ax3.set_facecolor(CARD)
+            cv3 = FigureCanvasTkAgg(fig3, master=pc2); cv3.draw()
+            cv3.get_tk_widget().pack(fill="both", padx=4, pady=(0,10))
+
+    # ──────────────────────────────────────────────────────────────────────────
+    def _render_no_data(self, parent):
+        c = tk.Frame(parent, bg=BG); c.pack(expand=True, fill="both")
+        inn = tk.Frame(c, bg=CARD, highlightthickness=1, highlightbackground=BORDER,
+                       padx=60, pady=50)
+        inn.place(relx=0.5, rely=0.5, anchor="center")
+        tk.Label(inn, text="🗄️", font=("Segoe UI",48), bg=CARD).pack()
+        tk.Label(inn, text="Sin datos en MongoDB",
+                 font=("Segoe UI",16,"bold"), bg=CARD, fg=TEXT).pack(pady=(10,4))
+        tk.Label(inn,
+                 text="La base de datos está vacía o MongoDB no está conectado.\n"
+                      "Ejecuta 'inicializar_bd.bat' para cargar datos de ejemplo.",
+                 font=("Segoe UI",10), bg=CARD, fg=TEXT2, justify="center").pack()
+        tk.Frame(inn, bg=BORDER, height=1).pack(fill="x", pady=20)
+        _btn(inn, "↻  Reintentar", lambda: self._show_page("dashboard"), bg=ACCENT).pack()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PÁGINA: KPIs DETALLADOS — LOS 12 SEGÚN EL PDF
+    # ══════════════════════════════════════════════════════════════════════════
+    def _page_kpis(self):
+        try:
+            from matplotlib.figure import Figure
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            import matplotlib.ticker as mticker
+            HAS_MPL = True
+        except ImportError:
+            HAS_MPL = False
+
+        # Barra de herramientas FUERA del scroll
+        tb = tk.Frame(self.page_frame, bg=BG, pady=10)
+        tb.pack(fill="x", padx=20)
+        _btn(tb, "↻  Actualizar", lambda: self._show_page("kpis"),
+             bg=ACCENT, size=9, px=14, py=6).pack(side="right")
+
+        k = self._calcular_kpis()
+        if k is None:
+            self._render_no_data(self.page_frame); return
+
+        # Contenedor scrollable que ocupa todo el espacio restante
+        scroll_wrap = tk.Frame(self.page_frame, bg=BG)
+        scroll_wrap.pack(fill="both", expand=True)
+        _, inn = _scroll_frame(scroll_wrap)
+        pad = 16
+
+        # Definición completa de los 12 KPIs según el documento oficial
+        kpi_defs = [
+            # (num, sigla, nombre_completo, valor, estado_texto, ok, color,
+            #  formula, variables, calculo_detalle, descripcion)
+            (1, "TSC", "Tasa de Satisfacción del Cliente",
+             f"{k['tsc']}%" if k['tsc'] is not None else "Sin datos",
+             "Meta > 70%", k['tsc'] is not None and k['tsc'] >= 70,
+             GREEN,
+             "TSC = (Calif. ≥ 4 / Total) × 100",
+             f"Positivas (≥4): {k['cp']}  |  Negativas (≤2): {k['cn']}  |  Total: {k['tc']}",
+             f"Fuente: {k['fuente_com']}" + (f"  |  Promedio: {k['cal_prom']}/5" if k['cal_prom'] else ""),
+             "Mide la satisfacción real usando calificaciones 1-5 de los clientes."),
+
+            (2, "PVC", "Proyección de Ventas por Día",
+             f"${k['pvc']:,.2f}",
+             f"Rentable: {k['dp']} días", True,
+             BLUE,
+             "PVC = PMC + IE + Días Especiales",
+             f"PMC = ${k['pmc']:,.2f}  |  Ajuste días especiales = ${k['dias_adj']:,.2f}",
+             f"Promedio mensual + ajuste 5% festivos",
+             "Proyección del ingreso diario ajustado por eventos extraordinarios."),
+
+            (3, "TCL", "Tendencia de Categoría Líder",
+             f"{k['tcl']}%",
+             f"Categoría: {k['top_cat']}", True,
+             ACCENT,
+             "TCL = (VC / VT) × 100",
+             f"VC = Ventas de {k['top_cat']}  |  VT = Ventas totales del periodo",
+             f"${k['it']*k['tcl']/100:,.0f} / ${k['it']:,.0f} × 100",
+             "Identifica la categoría que más aporta a las ventas totales."),
+
+            (4, "RDI", "Ratio de Rotación de Insumos",
+             f"{k['rdi']:.2f} kg/día",
+             "Buen Consumo: > 12 kg/día", k['rdi'] >= 12,
+             "#2E86AB",
+             "RDI = Total Insumo / DP",
+             f"Total harina: {k['total_harina']:,.1f} kg  |  DP = {k['dp']} días",
+             f"{k['total_harina']:,.1f} / {k['dp']} días",
+             "Mide el promedio de harina consumida por día de operación."),
+
+            (5, "TVFS", "Tasa de Variación en Fin de Semana",
+             f"{k['tvfs']:+.1f}%",
+             "Crecimiento ≥ 0%", k['tvfs_ok'],
+             PURPLE,
+             "TVFS = ((VFS − VFS_ant) / VFS_ant) × 100",
+             f"VFS actual = ${k['vfs_act']:,.0f}  |  VFS anterior = ${k['vfs_ant']:,.0f}",
+             f"(${k['vfs_act']:,.0f} − ${k['vfs_ant']:,.0f}) / ${k['vfs_ant']:,.0f} × 100",
+             "Mide el crecimiento o caída de ventas entre fines de semana consecutivos."),
+
+            (6, "VVC", "Variación de Ventas por Categoría",
+             f"${k['rac']:,.2f}",
+             "RAC > $0 = rentable", k['vvc_ok'],
+             GOLD,
+             "RAC = CVFS_día − PV_día − EV_día",
+             f"CVFS_día = ${k['cvfs_dia']:,.2f}  |  PV_día = ${k['pv_dia']:,.2f}  |  EV_día = ${k['ev_dia']:,.2f}",
+             f"${k['cvfs_dia']:,.2f} − ${k['pv_dia']:,.2f} − ${k['ev_dia']:,.2f}",
+             "Evalúa la rentabilidad por categoría en fines de semana."),
+
+            (7, "PMVU", "Producto Más Vendido por Unidades",
+             k['pnom'],
+             f"{k['pcan']:,} unidades vendidas", True,
+             "#5B4A8A",
+             "PMVU = MAX( SUPL(art.Lote) )",
+             "Unidades = unidades vendidas por producto por periodo",
+             f"MAX de {k['np']} productos distintos",
+             f"Resultado: {k['pnom']} con {k['pcan']:,} unidades vendidas."),
+
+            (8, "IPT", "Ingreso Promedio por Transacción",
+             f"${k['ipt']:,.2f}",
+             f"{k['nt']:,} transacciones registradas", True,
+             TEAL,
+             "IPT = IT / AT",
+             f"IT = Ingresos totales: ${k['it']:,.0f}  |  AT = {k['nt']:,} transacciones",
+             f"${k['it']:,.0f} / {k['nt']:,}",
+             "Mide el ticket promedio por cada venta realizada."),
+
+            (9, "TCD", "Tasa de Calidad de Datos",
+             f"{k['tcd']}%",
+             "Meta ≥ 95%", k['tcd'] >= 95,
+             GREEN,
+             "TCD = (RC / TR) × 100",
+             f"RC = Registros correctos: {k['rc']:,}  |  TR = Total registros: {k['tr']:,}",
+             f"{k['rc']:,} / {k['tr']:,} × 100",
+             "Mide consistencia y limpieza de datos almacenados en MongoDB."),
+
+            (10, "IEP", "Índice de Estacionalidad del Producto",
+             f"{k['iep']:.2f} ×",
+             "IEP > 1 = superior al promedio", k['iep'] >= 1,
+             BROWN,
+             "IEP = VS_Mes / IM",
+             f"VS_Mes = ventas mes del producto estrella  |  IM = promedio mensual",
+             f"Producto estrella: {k['pe'] or 'N/A'}",
+             "Ratio que expresa cuánto supera el promedio mensual de ventas."),
+
+            (11, "SNP", "Sentimiento Negativo por Periodo",
+             f"{k['snp']}%" if k['snp'] is not None else "Sin datos",
+             "Alerta crítica si > 20%",
+             k['snp'] is not None and k['snp'] <= 20,
+             RED,
+             "SNP = (TN / TC) × 100",
+             f"TN = Comentarios negativos: {k['cn']}  |  TC = Total: {k['tc']}",
+             f"{k['cn']} / {k['tc']} × 100  [{k['fuente_com']}]",
+             "Mide cuántas quejas de clientes superan el umbral crítico."),
+
+            (12, "CIB", "Costo de Uso de Insumos",
+             f"${k['cib']:,.2f} / kg",
+             "Mayor valor = mayor eficiencia", True,
+             OLIVE,
+             "CIB = IT / TC",
+             f"IT = Ingresos totales: ${k['it']:,.0f}  |  TC = {k['tic']:,.0f} kg insumos",
+             f"${k['it']:,.0f} / {k['tic']:,.0f} kg",
+             "Mide el ingreso generado por cada kg de harina utilizado."),
+        ]
+
+        # Renderizar tarjetas en filas de 2 usando grid para ancho correcto
+        for i in range(0, len(kpi_defs), 2):
+            row_f = tk.Frame(inn, bg=BG)
+            row_f.pack(fill="x", padx=pad, pady=(pad if i==0 else 0, 8))
+            row_f.columnconfigure(0, weight=1, uniform="kpi_col")
+            row_f.columnconfigure(1, weight=1, uniform="kpi_col")
+            for col_idx, kpi in enumerate(kpi_defs[i:i+2]):
+                num, sig, nom, val, meta, ok, col, form, vars_, calc, desc = kpi
+                c = _card(row_f)
+                c.grid(row=0, column=col_idx, sticky="nsew",
+                       padx=(0, 10) if col_idx == 0 else (0, 0), pady=0)
+
+                # Header de color con número, sigla y badge
+                hc = tk.Frame(c, bg=col, padx=16, pady=10); hc.pack(fill="x")
+                hr = tk.Frame(hc, bg=col); hr.pack(fill="x")
+                tk.Label(hr, text=f"KPI {num}  ·  {sig}",
+                         font=("Segoe UI",9,"bold"), bg=col, fg=WHITE).pack(side="left")
+                bb = "#1A5A35" if ok else "#8B1A1A"
+                tk.Label(hr, text=f"  {'✓  OK' if ok else '⚠  REVISAR'}  ",
+                         font=("Segoe UI",8,"bold"),
+                         bg=bb, fg=WHITE, pady=2).pack(side="right")
+                tk.Label(hc, text=nom, font=("Segoe UI",11,"bold"),
+                         bg=col, fg=WHITE, anchor="w").pack(fill="x", pady=(4,0))
+
+                # Cuerpo
+                body = tk.Frame(c, bg=CARD, padx=16, pady=12)
+                body.pack(fill="both", expand=True)
+
+                # Valor grande + meta
+                vr = tk.Frame(body, bg=CARD); vr.pack(fill="x", pady=(0,6))
+                tk.Label(vr, text=val, font=("Segoe UI",22,"bold"),
+                         bg=CARD, fg=col).pack(side="left")
+                tk.Label(vr, text=f"  {meta}", font=("Segoe UI",8),
+                         bg=CARD, fg=TEXT_LIGHT).pack(side="left", anchor="s", pady=(0,3))
+
+                # Descripción
+                tk.Label(body, text=desc, font=("Segoe UI",8),
+                         bg=CARD, fg=TEXT2, anchor="w",
+                         wraplength=420, justify="left").pack(fill="x", pady=(0,6))
+
+                # Fórmula
+                tk.Frame(body, bg=BORDER, height=1).pack(fill="x", pady=(0,6))
+                fb = tk.Frame(body, bg="#F5F0EB",
+                              highlightthickness=1, highlightbackground=BORDER)
+                fb.pack(fill="x")
+                tk.Label(fb, text=form, font=("Consolas",9,"bold"),
+                         bg="#F5F0EB", fg=col, padx=10, pady=5, anchor="w").pack(fill="x")
+                tk.Label(fb, text=vars_, font=("Segoe UI",8),
+                         bg="#F5F0EB", fg=TEXT2, padx=10, pady=3, anchor="w").pack(fill="x")
+                tk.Label(body, text=f"Cálculo:  {calc}", font=("Segoe UI",8),
+                         bg=CARD, fg=TEXT_LIGHT, padx=2, anchor="w").pack(fill="x", pady=(5,0))
+
+        # Gráfico comparativo final: barras por categoría
+        if HAS_MPL:
+            cr = tk.Frame(inn, bg=BG); cr.pack(fill="x", padx=pad, pady=(0,pad))
+            ccc = _card(cr); ccc.pack(fill="both", expand=True)
+            tk.Frame(ccc, bg=GOLD, height=4).pack(fill="x")
+            hrow = tk.Frame(ccc, bg=CARD, padx=16, pady=10); hrow.pack(fill="x")
+            tk.Label(hrow, text="Comparativo Ventas por Categoría  —  KPI TCL",
+                     font=("Segoe UI",11,"bold"), bg=CARD, fg=TEXT).pack(side="left")
+            tk.Label(hrow, text=f"Categoría líder: {k['top_cat']}  ({k['tcl']}%)",
+                     font=("Segoe UI",9), bg=CARD, fg=TEXT2).pack(side="right")
+            cat = k["cat_data"]
+            fc  = Figure(figsize=(10, 2.4), facecolor=CARD, dpi=96)
+            fc.subplots_adjust(left=0.04, right=0.98, top=0.88, bottom=0.18)
+            ac  = fc.add_subplot(111)
+            if not cat.empty:
+                xp  = range(len(cat))
+                cls = [CC[i%len(CC)] for i in range(len(cat))]
+                bs  = ac.bar(xp, cat.values, color=cls, width=0.55)
+                ac.set_xticks(list(xp))
+                ac.set_xticklabels(cat.index.tolist(), fontsize=8, color=TEXT)
+                ac.yaxis.set_major_formatter(
+                    mticker.FuncFormatter(lambda v,_: f"${v/1000:.0f}k"))
+                ac.tick_params(axis="y", labelsize=7, colors=TEXT2)
+                for b, v in zip(bs, cat.values):
+                    ac.text(b.get_x()+b.get_width()/2,
+                            b.get_height()+max(cat.values)*0.01,
+                            f"${v/1000:.1f}k", ha="center", fontsize=7, color=TEXT2)
+            ac.set_facecolor(CARD)
+            for sp in ac.spines.values(): sp.set_visible(False)
+            ac.yaxis.grid(True, color=BORDER, linewidth=0.6, alpha=0.8)
+            ac.set_axisbelow(True)
+            cvc = FigureCanvasTkAgg(fc, master=ccc); cvc.draw()
+            cvc.get_tk_widget().pack(fill="x", padx=8, pady=(0,12))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PÁGINA: DATOS
+    # ══════════════════════════════════════════════════════════════════════════
+    def _page_datos(self):
+        tb = tk.Frame(self.page_frame, bg=BG, pady=12); tb.pack(fill="x", padx=20)
+        for label, cmd, color in [
+            ("🗄️  Base de Datos", self._importar_bd,   ACCENT),
+            ("📊  Excel",          self._importar_excel, ACCENT),
+            ("🔗  URL / CSV",      self._importar_url,   BLUE),
+            ("💾  Guardar Mongo",  self._guardar_mongo,  GREEN),
+        ]:
+            _btn(tb, label, cmd, bg=color, size=9, px=12, py=7).pack(side="left", padx=(0,8))
+
+        sf = tk.Frame(tb, bg=BG); sf.pack(side="right")
+        tk.Label(sf, text="Buscar:", font=("Segoe UI",9), fg=TEXT2, bg=BG
+                 ).pack(side="left", padx=(0,6))
         self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", self._filtrar)
-        tk.Entry(sf, textvariable=self.search_var,
-                 bg=WHITE, fg=TEXT, insertbackground=TEXT,
-                 relief="flat", font=("Segoe UI", 10),
+        self.search_var.trace_add("write", self._filtrar_tabla)
+        tk.Entry(sf, textvariable=self.search_var, bg=WHITE, fg=TEXT,
+                 insertbackground=TEXT, relief="flat", font=("Segoe UI",10),
                  highlightthickness=1, highlightbackground=BORDER,
-                 highlightcolor=ACCENT, width=22
-                 ).pack(side="left", padx=(6,0), ipady=5)
+                 highlightcolor=ACCENT, width=24).pack(side="left", ipady=5)
 
-        tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
+        self.lbl_data_info = tk.Label(
+            self.page_frame,
+            text="Sin datos cargados — usa uno de los botones para importar",
+            font=("Segoe UI",9), fg=TEXT2, bg=BG)
+        self.lbl_data_info.pack(anchor="w", padx=22, pady=(0,6))
 
-        # Tabla
-        tf = tk.Frame(self, bg=WHITE)
-        tf.pack(fill="both", expand=True)
+        tf = tk.Frame(self.page_frame, bg=WHITE,
+                      highlightthickness=1, highlightbackground=BORDER)
+        tf.pack(fill="both", expand=True, padx=20, pady=(0,14))
         self.tree = ttk.Treeview(tf, style="App.Treeview",
                                  show="headings", selectmode="browse")
         vsb = ttk.Scrollbar(tf, orient="vertical",   command=self.tree.yview)
@@ -197,1527 +897,343 @@ class App(tk.Tk):
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
         tf.rowconfigure(0, weight=1); tf.columnconfigure(0, weight=1)
-
-        # Barra de estado
-        status = tk.Frame(self, bg=HDR, pady=5)
-        status.pack(fill="x")
-        self.lbl_status = tk.Label(status, text="Listo",
-                                   font=("Segoe UI", 9),
-                                   bg=HDR, fg="#C8A080")
-        self.lbl_status.pack(side="left", padx=16)
-
-    # ── Boton 1: Base de Datos ────────────────────────────────────────────────
-    def importar_bd(self):
-        if not self.db.is_connected:
-            try:
-                self.db.connect()
-            except Exception as e:
-                messagebox.showerror("Error MongoDB",
-                    "No se pudo conectar a MongoDB.\n"
-                    "Verifica que el servicio este corriendo.\n\n" + str(e))
-                return
-
-        EXCLUIR = {"Dim_Clima"}
-        tablas = [t for t in self.db.list_tables() if t not in EXCLUIR]
-        tablas += self.db.list_views()
-        if not tablas:
-            messagebox.showinfo("Sin colecciones",
-                "La BD no tiene datos. Se generaran automaticamente...")
-            self.db.init_panaderia()
-            tablas = [t for t in self.db.list_tables() if t not in EXCLUIR]
-        self._dialogo_lista("Seleccionar tabla", tablas,
-            lambda t: self._cargar_df(self.db.read_table(t), "BD: " + t),
-            info_fn=lambda t: str(self.db.table_row_count(t)) + " filas")
-
-    # ── Boton 2: Excel ────────────────────────────────────────────────────────
-    def importar_excel(self):
-        path = filedialog.askopenfilename(
-            title="Abrir archivo Excel",
-            filetypes=[("Excel","*.xlsx *.xls *.xlsm"),("All","*.*")])
-        if not path: return
-        try:
-            sheets  = pd.read_excel(path, sheet_name=None)
-            nombres = list(sheets.keys())
-            if len(nombres) == 1:
-                self._cargar_df(sheets[nombres[0]], "Excel: " + nombres[0])
-            else:
-                self._dialogo_lista("Seleccionar hoja", nombres,
-                    lambda n: self._cargar_df(sheets[n], "Excel: " + n))
-        except Exception as e:
-            messagebox.showerror("Error", "No se pudo abrir:\n" + str(e))
-
-    # ── Boton 3: URL / CSV ────────────────────────────────────────────────────
-    def importar_externo(self):
-        win = self._ventana("Importar desde URL", 500, 200)
-        tk.Label(win, text="URL del archivo CSV:",
-                 font=("Segoe UI", 11, "bold"), fg=TEXT, bg=BG
-                 ).pack(pady=(20,4), padx=20, anchor="w")
-        tk.Label(win, text="Ejemplo: https://datos.gob.mx/archivo.csv",
-                 font=("Segoe UI", 9), fg=TEXT2, bg=BG
-                 ).pack(padx=20, anchor="w")
-        url_var = tk.StringVar()
-        tk.Entry(win, textvariable=url_var, bg=WHITE, fg=TEXT,
-                 insertbackground=TEXT, relief="flat",
-                 font=("Segoe UI", 10),
-                 highlightthickness=1, highlightbackground=BORDER,
-                 highlightcolor=ACCENT
-                 ).pack(fill="x", padx=20, pady=(10,4), ipady=6)
-        lbl_err = tk.Label(win, text="", font=("Segoe UI", 9),
-                           fg=DANGER, bg=BG)
-        lbl_err.pack(padx=20, anchor="w")
-
-        def cargar():
-            url = url_var.get().strip()
-            if not url:
-                lbl_err.config(text="Escribe una URL."); return
-            try:
-                lbl_err.config(text="Descargando...", fg=TEXT2); win.update()
-                df = pd.read_csv(url)
-                win.destroy()
-                self._cargar_df(df, "URL: " + url.split("/")[-1])
-            except Exception as e:
-                lbl_err.config(text="Error: " + str(e), fg=DANGER)
-
-        self._btn_win(win, "Cargar datos", cargar, BLUE)
-
-    # ── Boton 4: Clima ────────────────────────────────────────────────────────
-    def importar_clima(self):
-        win = self._ventana("Consultar Clima", 480, 310)
-
-        tk.Label(win, text="Datos de Clima en Tiempo Real",
-                 font=("Segoe UI", 12, "bold"), fg=TEXT, bg=BG
-                 ).pack(pady=(16,2), padx=20, anchor="w")
-        tk.Label(win,
-                 text="Dias frios o lluviosos = mayor demanda de pan dulce y cafe.\n"
-                      "Si aun no tienes API Key usa el boton Demo.",
-                 font=("Segoe UI", 9), fg=TEXT2, bg=BG, justify="left"
-                 ).pack(padx=20, anchor="w", pady=(0,10))
-
-        r1 = tk.Frame(win, bg=BG); r1.pack(fill="x", padx=20, pady=3)
-        tk.Label(r1, text="Ciudad:", font=("Segoe UI", 10),
-                 fg=TEXT2, bg=BG, width=12, anchor="w").pack(side="left")
-        ciudad_var = tk.StringVar(value="Oaxaca,MX")
-        tk.Entry(r1, textvariable=ciudad_var, bg=WHITE, fg=TEXT,
-                 relief="flat", font=("Segoe UI", 10),
-                 highlightthickness=1, highlightbackground=BORDER,
-                 highlightcolor=ACCENT
-                 ).pack(side="left", fill="x", expand=True, ipady=5)
-
-        r2 = tk.Frame(win, bg=BG); r2.pack(fill="x", padx=20, pady=3)
-        tk.Label(r2, text="API Key:", font=("Segoe UI", 10),
-                 fg=TEXT2, bg=BG, width=12, anchor="w").pack(side="left")
-        api_var = tk.StringVar()
-        tk.Entry(r2, textvariable=api_var, bg=WHITE, fg=TEXT,
-                 relief="flat", font=("Segoe UI", 10),
-                 highlightthickness=1, highlightbackground=BORDER,
-                 highlightcolor=ACCENT
-                 ).pack(side="left", fill="x", expand=True, ipady=5)
-
-        tk.Label(win,
-                 text="Clave gratuita en: openweathermap.org/api  "
-                      "(las claves nuevas tardan hasta 2 h en activarse)",
-                 font=("Segoe UI", 8), fg=WARNING, bg=BG
-                 ).pack(padx=20, anchor="w", pady=(2,4))
-
-        lbl_err = tk.Label(win, text="", font=("Segoe UI", 9),
-                           fg=DANGER, bg=BG, wraplength=440, justify="left")
-        lbl_err.pack(padx=20, anchor="w")
-
-        def consultar_real():
-            ciudad  = ciudad_var.get().strip()
-            api_key = api_var.get().strip()
-            if not ciudad:
-                lbl_err.config(text="Escribe una ciudad.", fg=DANGER); return
-            if not api_key:
-                lbl_err.config(
-                    text="Escribe tu API Key o usa el boton Demo.", fg=DANGER)
-                return
-            lbl_err.config(text="Consultando...", fg=TEXT2); win.update()
-            try:
-                url_actual = (
-                    "https://api.openweathermap.org/data/2.5/weather"
-                    "?q=" + urllib.parse.quote(ciudad) +
-                    "&appid=" + api_key + "&units=metric&lang=es"
-                )
-                with urllib.request.urlopen(url_actual, timeout=8) as r:
-                    data = json.loads(r.read())
-
-                url_forecast = (
-                    "https://api.openweathermap.org/data/2.5/forecast"
-                    "?q=" + urllib.parse.quote(ciudad) +
-                    "&appid=" + api_key + "&units=metric&lang=es&cnt=40"
-                )
-                with urllib.request.urlopen(url_forecast, timeout=8) as r:
-                    forecast = json.loads(r.read())
-
-                win.destroy()
-                rows = []
-                temp   = data["main"]["temp"]
-                lluvia = data.get("rain", {}).get("1h", 0.0)
-                rows.append({
-                    "Momento"       : "Ahora",
-                    "Ciudad"        : data["name"],
-                    "Temperatura C" : round(temp, 1),
-                    "Sensacion C"   : round(data["main"]["feels_like"], 1),
-                    "Humedad %"     : data["main"]["humidity"],
-                    "Condicion"     : data["weather"][0]["description"].capitalize(),
-                    "Lluvia mm"     : lluvia,
-                    "Viento km/h"   : round(data["wind"]["speed"] * 3.6, 1),
-                    "Presion hPa"   : data["main"]["pressure"],
-                })
-                for item in forecast["list"]:
-                    t  = item["main"]["temp"]
-                    ll = item.get("rain", {}).get("3h", 0.0)
-                    rows.append({
-                        "Momento"       : item["dt_txt"],
-                        "Ciudad"        : data["name"],
-                        "Temperatura C" : round(t, 1),
-                        "Sensacion C"   : round(item["main"]["feels_like"], 1),
-                        "Humedad %"     : item["main"]["humidity"],
-                        "Condicion"     : item["weather"][0]["description"].capitalize(),
-                        "Lluvia mm"     : ll,
-                        "Viento km/h"   : round(item["wind"]["speed"] * 3.6, 1),
-                        "Presion hPa"   : item["main"]["pressure"],
-                    })
-                self._cargar_df(pd.DataFrame(rows), "Clima: " + data["name"])
-
-            except Exception as e:
-                msg = str(e)
-                if "401" in msg:
-                    lbl_err.config(
-                        text="API Key invalida o aun no activada (puede tardar 2 h).\n"
-                             "Usa el boton 'Demo sin key' para datos simulados.",
-                        fg=DANGER)
-                else:
-                    lbl_err.config(text="Error: " + msg, fg=DANGER)
-
-        def consultar_demo():
-            ciudad = ciudad_var.get().strip() or "Oaxaca"
-            win.destroy()
-            self._cargar_df(_clima_demo(ciudad), "Clima demo: " + ciudad)
-
-        brow = tk.Frame(win, bg=BG)
-        brow.pack(fill="x", padx=20, pady=(8,16))
-        tk.Button(brow, text="  Consultar clima  ",
-                  command=consultar_real,
-                  bg="#2E86AB", fg=WHITE, relief="flat",
-                  font=("Segoe UI", 11, "bold"), cursor="hand2",
-                  pady=9, activebackground=HDR, activeforeground=WHITE
-                  ).pack(side="left", fill="x", expand=True, padx=(0,6))
-        
-
-    # ── Boton 5: Comentarios ──────────────────────────────────────────────────
-    def analizar_comentarios(self):
-        base = datetime.now()
-        comentarios = [
-            "El pan de yema estaba muy seco hoy",
-            "Las conchas siempre frescas y esponjosas, me encanta",
-            "Tardaron mucho en atenderme pero el pan estaba rico",
-            "Hoy el bolillo estaba quemado, malo",
-            "El pan de muerto estaba delicioso, el mejor de Oaxaca",
-            "La hojaldra estaba muy dura y fria",
-            "Excelente servicio y pan fresco, siempre vuelvo",
-            "El cubilete estaba desabrido y grasoso",
-            "Que rico pan, el mejor del barrio",
-            "Habia poca variedad pero lo que habia estaba bueno",
-        ]
-        # Dias unicos y distintos dentro del ultimo mes, orden cronologico
-        dias_atras = sorted(random.sample(range(1, 31), len(comentarios)))
-        rows = [
-            {
-                "#": i,
-                "Fecha": (base - timedelta(
-                              days=d,
-                              hours=random.randint(8, 21),
-                              minutes=random.randint(0, 59)
-                          )).strftime("%Y-%m-%d %H:%M"),
-                "Comentario": com,
-            }
-            for i, (com, d) in enumerate(zip(comentarios, dias_atras), 1)
-        ]
-        self._cargar_df(pd.DataFrame(rows),
-                        "Comentarios: " + str(len(rows)) + " registros")
+        if self.df is not None and not self.df.empty:
+            self._llenar_tabla(self.df)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # BOTON 6: CALIDAD DE DATOS
+    # PÁGINA: COMENTARIOS
     # ══════════════════════════════════════════════════════════════════════════
-    def calidad_datos(self):
-        if self.df is None or self.df.empty:
-            messagebox.showinfo("Sin datos",
-                "Primero carga datos usando alguno de los botones superiores.")
+    def _page_comentarios(self):
+        txts = []; califs_raw = []; extra_cols = {}
+        if self.db.is_connected:
+            try:
+                df_c = self.db.read_table("Comentarios")
+                if not df_c.empty:
+                    # columna de texto (excluye _id)
+                    col_c = next((c for c in df_c.columns
+                                  if (any(k in c.lower() for k in
+                                         ["comentario","texto","comment","resena","opinion"])
+                                      and not c.lower().endswith("_id"))), None)
+                    # columna de calificación
+                    col_cal = next((c for c in df_c.columns
+                                    if any(k in c.lower() for k in
+                                           ["calificacion","calificación","rating",
+                                            "puntuacion","score","stars"])), None)
+                    # columnas extra de interés (plataforma, producto)
+                    for campo in ["plataforma","producto_mencionado","fecha"]:
+                        match = next((c for c in df_c.columns if campo in c.lower()), None)
+                        if match:
+                            extra_cols[campo] = match
+
+                    if col_c:
+                        txts = df_c[col_c].fillna("").astype(str).tolist()
+                    if col_cal:
+                        califs_raw = pd.to_numeric(
+                            df_c[col_cal], errors="coerce").fillna(0).astype(int).tolist()
+            except Exception:
+                pass
+
+        if not txts and not califs_raw:
+            c = tk.Frame(self.page_frame, bg=BG); c.pack(expand=True, fill="both")
+            inn = tk.Frame(c, bg=CARD, highlightthickness=1, highlightbackground=BORDER,
+                           padx=60, pady=50)
+            inn.place(relx=0.5, rely=0.5, anchor="center")
+            tk.Label(inn, text="💬", font=("Segoe UI",48), bg=CARD).pack()
+            tk.Label(inn, text="Sin colección de Comentarios",
+                     font=("Segoe UI",14,"bold"), bg=CARD, fg=TEXT).pack(pady=(10,4))
+            tk.Label(inn,
+                     text="Crea una colección 'Comentarios' en MongoDB\n"
+                          "con campos 'comentario' y/o 'calificacion'.",
+                     font=("Segoe UI",10), bg=CARD, fg=TEXT2, justify="center").pack()
             return
 
-        df_original = self.df.copy()
-
-        win = tk.Toplevel(self)
-        win.title("Calidad de Datos")
-        win.configure(bg=BG)
-        win.geometry("820x620")
-        win.minsize(700, 500)
-        win.grab_set()
-
-        # Encabezado
-        tk.Label(win, text="Calidad de Datos",
-                 font=("Segoe UI", 13, "bold"),
-                 bg=HDR, fg=WHITE, pady=12
-                 ).pack(fill="x", padx=0)
-        tk.Label(win,
-                 text="Datos cargados: " + self.lbl_fuente.cget("text"),
-                 font=("Segoe UI", 9), fg=TEXT2, bg=BG
-                 ).pack(anchor="w", padx=20, pady=(8, 0))
-
-        # Notebook con 3 pestanas
-        nb = ttk.Notebook(win)
-        nb.pack(fill="both", expand=True, padx=14, pady=10)
-
-        tab1 = tk.Frame(nb, bg=BG)
-        tab2 = tk.Frame(nb, bg=BG)
-        tab3 = tk.Frame(nb, bg=BG)
-        nb.add(tab1, text="  1. Exploracion  ")
-        nb.add(tab2, text="  2. Limpieza  ")
-        nb.add(tab3, text="  3. Normalizacion  ")
-
-        # ── Contenedor de texto reutilizable ─────────────────────────────────
-        def text_area(parent):
-            f = tk.Frame(parent, bg=WHITE,
-                         highlightthickness=1, highlightbackground=BORDER)
-            f.pack(fill="both", expand=True, padx=12, pady=(8, 4))
-            t = scrolledtext.ScrolledText(
-                f, font=("Consolas", 9), bg=WHITE, fg=TEXT,
-                relief="flat", wrap="word", state="disabled",
-                padx=10, pady=8)
-            t.pack(fill="both", expand=True)
-            return t
-
-        def escribir(t, texto):
-            t.configure(state="normal")
-            t.delete("1.0", "end")
-            t.insert("end", texto)
-            t.configure(state="disabled")
-
-        # ══════════════════════════════════════════════════════════════════════
-        # PESTANA 1: EXPLORACION
-        # ══════════════════════════════════════════════════════════════════════
-        txt1 = text_area(tab1)
-
-        def explorar():
-            df  = df_original
-            sep = "-" * 60
-            out = []
-
-            # a) Tipos de datos
-            out.append(sep)
-            out.append("A)  TIPOS DE DATOS")
-            out.append(sep)
-            for col in df.columns:
-                tipo  = str(df[col].dtype)
-                muestra = str(df[col].dropna().iloc[0]) if not df[col].dropna().empty else "(vacio)"
-                out.append(f"  {col:<25} tipo: {tipo:<12}  ejemplo: {muestra}")
-
-            # b) Valores nulos
-            out.append("")
-            out.append(sep)
-            out.append("B)  VALORES NULOS O VACIOS")
-            out.append(sep)
-            hay_nulos = False
-            for col in df.columns:
-                nulos  = df[col].isnull().sum()
-                vacios = (df[col].astype(str).str.strip() == "").sum()
-                total  = nulos + vacios
-                if total > 0:
-                    hay_nulos = True
-                    pct = round(100 * total / len(df), 1)
-                    out.append(f"  {col:<25} {total:>4} valores nulos/vacios  ({pct}%)")
-            if not hay_nulos:
-                out.append("  Sin valores nulos o vacios detectados.")
-
-            # c) Duplicados
-            out.append("")
-            out.append(sep)
-            out.append("C)  FILAS DUPLICADAS")
-            out.append(sep)
-            n_dup = df.duplicated().sum()
-            if n_dup > 0:
-                out.append(f"  Se encontraron {n_dup} filas completamente duplicadas.")
-                out.append("  Ejemplo de duplicado:")
-                dup_example = df[df.duplicated(keep=False)].head(2)
-                for _, r in dup_example.iterrows():
-                    out.append("    " + "  |  ".join(str(v) for v in r.values))
+        n = max(len(txts), len(califs_raw))
+        base = datetime.now()
+        rows = []
+        for i in range(n):
+            com  = txts[i] if i < len(txts) else ""
+            cal  = califs_raw[i] if i < len(califs_raw) else None
+            # sentimiento basado primero en calificación, luego en texto
+            if cal is not None and cal > 0:
+                sent = "Positivo" if cal >= 4 else ("Negativo" if cal <= 2 else "Neutro")
             else:
-                out.append("  Sin filas duplicadas.")
+                sent = ("Positivo" if any(p in com.lower() for p in PALABRAS_POSITIVAS)
+                        else ("Negativo" if any(p in com.lower() for p in PALABRAS_NEGATIVAS)
+                              else "Neutro"))
+            row = {"#": i+1, "Comentario": com}
+            if cal is not None:
+                row["Calificación"] = f"{cal}/5" if cal > 0 else ""
+            row["Fecha"] = (base - timedelta(
+                days=random.randint(1,90),
+                hours=random.randint(8,21),
+                minutes=random.randint(0,59))).strftime("%Y-%m-%d %H:%M")
+            row["Sentimiento"] = sent
+            rows.append(row)
 
-            # d) Inconsistencias
-            out.append("")
-            out.append(sep)
-            out.append("D)  INCONSISTENCIAS DETECTADAS")
-            out.append(sep)
-            inconsistencias = []
-            for col in df.select_dtypes(include="object").columns:
-                vals = df[col].dropna().astype(str)
-                # Mezcla de mayusculas/minusculas
-                unicos = vals.unique()
-                normalizados = [v.strip().lower() for v in unicos]
-                if len(set(normalizados)) < len(set(unicos)):
-                    inconsistencias.append(
-                        f"  '{col}': valores con distinta capitalizacion")
-                    ejemplos = [v for v in unicos if v.lower() in
-                                [x.lower() for x in unicos if x != v]][:4]
-                    if ejemplos:
-                        inconsistencias.append("    Ejemplos: " + ", ".join(ejemplos))
-                # Espacios extra
-                con_espacios = vals[vals != vals.str.strip()]
-                if not con_espacios.empty:
-                    inconsistencias.append(
-                        f"  '{col}': {len(con_espacios)} valores con espacios al inicio/final")
-                # Valores mixtos numericos en columna de texto
-                if col.lower() in ("cantidad", "total", "precio"):
-                    no_num = vals[pd.to_numeric(vals, errors="coerce").isnull()]
-                    if not no_num.empty:
-                        inconsistencias.append(
-                            f"  '{col}': contiene valores no numericos: {list(no_num[:3])}")
-            # Columnas numericas con valores negativos sospechosos
-            for col in df.select_dtypes(include="number").columns:
-                negativos = (df[col] < 0).sum()
-                if negativos > 0:
-                    inconsistencias.append(
-                        f"  '{col}': {negativos} valores negativos")
+        self._cargar_df(pd.DataFrame(rows), "Comentarios MongoDB")
+        self._show_page("datos")
 
-            if inconsistencias:
-                out.extend(inconsistencias)
+    # ══════════════════════════════════════════════════════════════════════════
+    # PÁGINA: CLIMA
+    # ══════════════════════════════════════════════════════════════════════════
+    def _page_clima(self):
+        outer = tk.Frame(self.page_frame, bg=BG, padx=20, pady=20)
+        outer.pack(fill="both", expand=True)
+        c = _card(outer); c.pack(fill="x")
+        tk.Frame(c, bg="#2E86AB", height=4).pack(fill="x")
+        body = tk.Frame(c, bg=CARD, padx=24, pady=20); body.pack(fill="x")
+        tk.Label(body, text="Consulta de Clima en Tiempo Real",
+                 font=("Segoe UI",13,"bold"), bg=CARD, fg=TEXT).pack(anchor="w")
+        tk.Label(body,
+                 text="El clima influye en la demanda de pan. "
+                      "Días lluviosos o fríos aumentan ventas de pan dulce y café.",
+                 font=("Segoe UI",9), bg=CARD, fg=TEXT2).pack(anchor="w", pady=(4,16))
+        def fila(lbl, val="", ancho=28):
+            r = tk.Frame(body, bg=CARD); r.pack(fill="x", pady=4)
+            tk.Label(r, text=lbl, font=("Segoe UI",10),
+                     fg=TEXT2, bg=CARD, width=10, anchor="w").pack(side="left")
+            v = tk.StringVar(value=val)
+            tk.Entry(r, textvariable=v, bg=BG, fg=TEXT, relief="flat",
+                     font=("Segoe UI",10), highlightthickness=1,
+                     highlightbackground=BORDER, highlightcolor=ACCENT,
+                     width=ancho).pack(side="left", ipady=6)
+            return v
+        ciudad_var = fila("Ciudad:", "Oaxaca,MX")
+        api_var    = fila("API Key:", "", ancho=36)
+        tk.Label(body, text="Clave gratuita en openweathermap.org/api (puede tardar 2h)",
+                 font=("Segoe UI",8), fg=TEXT_LIGHT, bg=CARD).pack(anchor="w", pady=(4,12))
+        lbl_err = tk.Label(body, text="", font=("Segoe UI",9), fg=RED, bg=CARD)
+        lbl_err.pack(anchor="w")
+        def real():
+            ciudad = ciudad_var.get().strip(); key = api_var.get().strip()
+            if not ciudad: lbl_err.config(text="Escribe una ciudad."); return
+            if not key:    lbl_err.config(text="Escribe tu API Key o usa Demo."); return
+            lbl_err.config(text="Consultando...", fg=TEXT2); outer.update()
+            try:
+                def fetch(u):
+                    with urllib.request.urlopen(u, timeout=8) as r: return json.loads(r.read())
+                d = fetch(f"https://api.openweathermap.org/data/2.5/weather"
+                          f"?q={urllib.parse.quote(ciudad)}&appid={key}&units=metric&lang=es")
+                f = fetch(f"https://api.openweathermap.org/data/2.5/forecast"
+                          f"?q={urllib.parse.quote(ciudad)}&appid={key}&units=metric&lang=es&cnt=40")
+                rows = [{"Momento":"Ahora","Ciudad":d["name"],
+                         "Temperatura C":round(d["main"]["temp"],1),
+                         "Sensacion C":round(d["main"]["feels_like"],1),
+                         "Humedad %":d["main"]["humidity"],
+                         "Condicion":d["weather"][0]["description"].capitalize(),
+                         "Lluvia mm":d.get("rain",{}).get("1h",0.0),
+                         "Viento km/h":round(d["wind"]["speed"]*3.6,1),
+                         "Presion hPa":d["main"]["pressure"]}]
+                for it in f["list"]:
+                    rows.append({"Momento":it["dt_txt"],"Ciudad":d["name"],
+                                 "Temperatura C":round(it["main"]["temp"],1),
+                                 "Sensacion C":round(it["main"]["feels_like"],1),
+                                 "Humedad %":it["main"]["humidity"],
+                                 "Condicion":it["weather"][0]["description"].capitalize(),
+                                 "Lluvia mm":it.get("rain",{}).get("3h",0.0),
+                                 "Viento km/h":round(it["wind"]["speed"]*3.6,1),
+                                 "Presion hPa":it["main"]["pressure"]})
+                self._cargar_df(pd.DataFrame(rows), f"Clima: {d['name']}")
+                self._show_page("datos")
+            except Exception as e:
+                lbl_err.config(fg=RED,
+                    text=("API Key inválida o no activada. Usa Demo."
+                          if "401" in str(e) else f"Error: {e}"))
+        def demo():
+            ciudad = ciudad_var.get().strip() or "Oaxaca"
+            self._cargar_df(_clima_demo(ciudad), f"Clima demo: {ciudad}")
+            self._show_page("datos")
+        br = tk.Frame(body, bg=CARD); br.pack(fill="x", pady=(8,0))
+        _btn(br, "🌐  Consultar clima real", real,  bg="#2E86AB", px=16, py=8).pack(side="left", padx=(0,10))
+        _btn(br, "🎲  Usar datos demo",      demo,  bg=TEXT2,     px=16, py=8).pack(side="left")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ACCIONES DE DATOS
+    # ══════════════════════════════════════════════════════════════════════════
+    def _importar_bd(self):
+        if not self.db.is_connected:
+            try: self.db.connect()
+            except Exception as e:
+                messagebox.showerror("Error MongoDB","No se pudo conectar.\n"+str(e)); return
+        tablas = [t for t in self.db.list_tables() if t != "Dim_Clima"]
+        if not tablas:
+            messagebox.showerror("BD vacía",
+                "MongoDB conectado pero sin colecciones.\nEjecuta 'inicializar_bd.bat'."); return
+        self._dialogo_lista("Seleccionar colección", tablas,
+            lambda t: (self._cargar_df(self.db.read_table(t), f"BD: {t}"),
+                       self._show_page("datos")),
+            info_fn=lambda t: f"{self.db.table_row_count(t):,} docs")
+
+    def _importar_excel(self):
+        path = filedialog.askopenfilename(
+            title="Abrir Excel", filetypes=[("Excel","*.xlsx *.xls *.xlsm"),("All","*.*")])
+        if not path: return
+        try:
+            sheets = pd.read_excel(path, sheet_name=None); nombres = list(sheets.keys())
+            if len(nombres)==1:
+                self._cargar_df(sheets[nombres[0]], f"Excel: {nombres[0]}")
+                self._show_page("datos")
             else:
-                out.append("  Sin inconsistencias detectadas.")
+                self._dialogo_lista("Seleccionar hoja", nombres,
+                    lambda n: (self._cargar_df(sheets[n], f"Excel: {n}"),
+                               self._show_page("datos")))
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo abrir:\n{e}")
 
-            out.append("")
-            out.append(sep)
-            out.append(f"  Total de filas analizadas : {len(df):,}")
-            out.append(f"  Total de columnas         : {len(df.columns)}")
-            out.append(sep)
+    def _importar_url(self):
+        win = self._form("Importar desde URL", 500, 220)
+        tk.Label(win, text="URL del archivo CSV:", font=("Segoe UI",11,"bold"),
+                 fg=TEXT, bg=BG).pack(pady=(20,4), padx=24, anchor="w")
+        tk.Label(win, text="Ejemplo: https://datos.gob.mx/archivo.csv",
+                 font=("Segoe UI",9), fg=TEXT2, bg=BG).pack(padx=24, anchor="w")
+        url_v = tk.StringVar()
+        tk.Entry(win, textvariable=url_v, bg=WHITE, fg=TEXT, insertbackground=TEXT,
+                 relief="flat", font=("Segoe UI",10),
+                 highlightthickness=1, highlightbackground=BORDER
+                 ).pack(fill="x", padx=24, pady=(10,4), ipady=6)
+        lbl = tk.Label(win, text="", font=("Segoe UI",9), fg=RED, bg=BG); lbl.pack(padx=24, anchor="w")
+        def cargar():
+            url = url_v.get().strip()
+            if not url: lbl.config(text="Escribe una URL."); return
+            try:
+                lbl.config(text="Descargando...", fg=TEXT2); win.update()
+                df = pd.read_csv(url); win.destroy()
+                self._cargar_df(df, f"URL: {url.split('/')[-1]}")
+                self._show_page("datos")
+            except Exception as e: lbl.config(text=f"Error: {e}", fg=RED)
+        _btn(win,"Cargar datos",cargar,bg=BLUE,px=20,py=8).pack(fill="x",padx=24,pady=(8,16))
 
-            escribir(txt1, "\n".join(out))
+    def _guardar_mongo(self):
+        if self.df is None or self.df.empty:
+            messagebox.showinfo("Sin datos","Primero carga datos."); return
+        if not self.db.is_connected:
+            try: self.db.connect()
+            except Exception as e: messagebox.showerror("Error",str(e)); return
+        win = self._form("Guardar en MongoDB", 460, 350)
+        tk.Label(win, text="Guardar en MongoDB", font=("Segoe UI",13,"bold"),
+                 bg="#13AA52", fg=WHITE, pady=12).pack(fill="x")
+        form = tk.Frame(win, bg=BG); form.pack(fill="x", padx=24, pady=16)
+        def campo(lbl, val=""):
+            tk.Label(form, text=lbl, font=("Segoe UI",10),
+                     fg=TEXT2, bg=BG, anchor="w").pack(fill="x", pady=(6,2))
+            v = tk.StringVar(value=val)
+            tk.Entry(form, textvariable=v, bg=WHITE, fg=TEXT, relief="flat",
+                     font=("Segoe UI",10), highlightthickness=1,
+                     highlightbackground=BORDER).pack(fill="x", ipady=5)
+            return v
+        db_v  = campo("Base de datos:", "panaderia")
+        col_v = campo("Colección:", "Nueva_Coleccion")
+        tk.Label(form, text="Si ya existe:", font=("Segoe UI",10),
+                 fg=TEXT2, bg=BG, anchor="w").pack(fill="x", pady=(6,2))
+        modo_v = tk.StringVar(value="Reemplazar")
+        ttk.Combobox(form, textvariable=modo_v, state="readonly",
+                     values=["Reemplazar","Agregar"],
+                     font=("Segoe UI",10)).pack(fill="x", ipady=3)
+        tk.Label(win, text=f"Filas a guardar: {len(self.df):,}",
+                 font=("Segoe UI",10,"bold"), fg="#13AA52", bg=BG).pack(anchor="w", padx=24)
+        def guardar():
+            db_n=db_v.get().strip(); col_n=col_v.get().strip()
+            if not db_n or not col_n:
+                messagebox.showwarning("Incompleto","Llena todos los campos."); return
+            try:
+                self.db.connect(db_name=db_n)
+                n = self.db.import_dataframe(self.df, col_n,
+                    if_exists="replace" if modo_v.get()=="Reemplazar" else "append")
+                win.destroy()
+                messagebox.showinfo("Guardado", f"{n:,} registros guardados en {db_n}/{col_n}")
+            except Exception as e: messagebox.showerror("Error",str(e))
+        _btn(win,"💾  Guardar",guardar,bg="#13AA52",px=20,py=9).pack(fill="x",padx=24,pady=(8,16))
 
-        tk.Button(tab1, text="  Explorar datos  ",
-                  command=explorar,
-                  bg=ACCENT, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 10, "bold"), cursor="hand2",
-                  pady=7, activebackground=HDR, activeforeground=WHITE
-                  ).pack(padx=12, pady=(10, 4), anchor="w")
-        explorar()   # ejecutar automaticamente al abrir
-
-        # ══════════════════════════════════════════════════════════════════════
-        # PESTANA 2: LIMPIEZA
-        # ══════════════════════════════════════════════════════════════════════
-        txt2  = text_area(tab2)
-        self._df_limpio = None
-
-        def limpiar():
-            df  = df_original.copy()
-            log = []
-            sep = "-" * 60
-
-            log.append(sep)
-            log.append("LIMPIEZA DE DATOS")
-            log.append(sep)
-            log.append(f"  Filas originales: {len(df):,}")
-
-            # 1. Eliminar duplicados
-            antes = len(df)
-            df.drop_duplicates(inplace=True)
-            df.reset_index(drop=True, inplace=True)
-            eliminados = antes - len(df)
-            log.append(f"")
-            log.append(f"  [1] Duplicados eliminados       : {eliminados}")
-
-            # 2. Eliminar filas completamente vacias
-            antes = len(df)
-            df.dropna(how="all", inplace=True)
-            df.reset_index(drop=True, inplace=True)
-            log.append(f"  [2] Filas completamente vacias  : {antes - len(df)}")
-
-            # 3. Rellenar nulos en texto con 'Sin datos'
-            cols_texto = df.select_dtypes(include="object").columns
-            n_rellenos = df[cols_texto].isnull().sum().sum()
-            df[cols_texto] = df[cols_texto].fillna("Sin datos")
-            log.append(f"  [3] Nulos en texto rellenados   : {n_rellenos}")
-
-            # 4. Rellenar nulos numericos con 0
-            cols_num = df.select_dtypes(include="number").columns
-            n_num = df[cols_num].isnull().sum().sum()
-            df[cols_num] = df[cols_num].fillna(0)
-            log.append(f"  [4] Nulos numericos rellenados  : {n_num}")
-
-            # 5. Eliminar espacios en texto
-            n_espacios = 0
-            for col in cols_texto:
-                antes_col = df[col].copy()
-                df[col] = df[col].astype(str).str.strip()
-                n_espacios += (antes_col != df[col]).sum()
-            log.append(f"  [5] Espacios eliminados         : {n_espacios}")
-
-            log.append("")
-            log.append(sep)
-            log.append(f"  Filas despues de limpieza: {len(df):,}")
-            log.append(sep)
-
-            self._df_limpio = df
-            escribir(txt2, "\n".join(log))
-
-        def aplicar_limpieza():
-            if self._df_limpio is None:
-                messagebox.showinfo("", "Primero haz clic en 'Limpiar datos'.")
-                return
-            self._cargar_df(self._df_limpio, "[Limpio] " + self.lbl_fuente.cget("text"))
-            win.destroy()
-
-        bf2 = tk.Frame(tab2, bg=BG)
-        bf2.pack(padx=12, pady=(10, 4), anchor="w")
-        tk.Button(bf2, text="  Limpiar datos  ",
-                  command=limpiar,
-                  bg=ACCENT, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 10, "bold"), cursor="hand2",
-                  pady=7, activebackground=HDR, activeforeground=WHITE
-                  ).pack(side="left")
-        tk.Button(bf2, text="  Aplicar y ver en tabla  ",
-                  command=aplicar_limpieza,
-                  bg=SUCCESS, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 10, "bold"), cursor="hand2",
-                  pady=7, activebackground=HDR, activeforeground=WHITE,
-                  padx=12
-                  ).pack(side="left", padx=(10, 0))
-
-        # ══════════════════════════════════════════════════════════════════════
-        # PESTANA 3: NORMALIZACION
-        # ══════════════════════════════════════════════════════════════════════
-        txt3 = text_area(tab3)
-        self._df_normalizado = None
-
-        def normalizar():
-            df  = (self._df_limpio if self._df_limpio is not None
-                   else df_original).copy()
-            log = []
-            sep = "-" * 60
-
-            log.append(sep)
-            log.append("NORMALIZACION Y ESTANDARIZACION")
-            log.append(sep)
-
-            cambios_total = 0
-
-            # 1. Estandarizar mayusculas/minusculas en columnas de texto
-            cols_texto = df.select_dtypes(include="object").columns
-            log.append("")
-            log.append("  [1] Estandarizacion de texto (Title Case):")
-            for col in cols_texto:
-                antes = df[col].copy()
-                # Title case: primera letra de cada palabra en mayuscula
-                df[col] = df[col].astype(str).str.strip().str.title()
-                n = (antes != df[col]).sum()
-                cambios_total += n
-                if n > 0:
-                    log.append(f"      '{col}': {n} valores corregidos")
-                    # Mostrar ejemplos
-                    diff = antes[antes != df[col]]
-                    for orig, nuevo in zip(diff.head(3), df[col][diff.index].head(3)):
-                        log.append(f"        '{orig}'  ->  '{nuevo}'")
-
-            # 2. Corregir errores tipograficos comunes en categorias conocidas
-            CORRECCIONES = {
-                "Salado":     ["salado","Salado","SALADO","Saladoo","salados"],
-                "Dulce":      ["dulce","Dulce","DULCE","Dulces","dulces"],
-                "Reposteria": ["reposteria","Reposteria","REPOSTERIA",
-                               "Reposterias","repostería","Repostería"],
-                "Temporada":  ["temporada","Temporada","TEMPORADA","temporadas"],
-            }
-            log.append("")
-            log.append("  [2] Correccion de valores de categoria:")
-            n_corr = 0
-            for col in cols_texto:
-                for correcto, variantes in CORRECCIONES.items():
-                    mask = df[col].isin(variantes) & (df[col] != correcto)
-                    if mask.any():
-                        n = mask.sum()
-                        n_corr += n
-                        cambios_total += n
-                        log.append(f"      '{col}': {n} valores -> '{correcto}'")
-                        df.loc[mask, col] = correcto
-            if n_corr == 0:
-                log.append("      Sin errores tipograficos en categorias.")
-
-            # 3. Normalizar fechas al formato YYYY-MM-DD
-            log.append("")
-            log.append("  [3] Normalizacion de fechas (YYYY-MM-DD):")
-            n_fechas = 0
-            for col in df.columns:
-                if "fecha" in col.lower() or "date" in col.lower():
-                    try:
-                        convertidas = pd.to_datetime(df[col], errors="coerce")
-                        validas = convertidas.notna().sum()
-                        if validas > 0:
-                            df[col] = convertidas.dt.strftime("%Y-%m-%d").fillna(df[col])
-                            n_fechas += validas
-                            log.append(f"      '{col}': {validas} fechas normalizadas")
-                    except Exception:
-                        pass
-            if n_fechas == 0:
-                log.append("      Sin columnas de fecha detectadas.")
-
-            # 4. Estandarizar columnas numericas: quitar simbolos de moneda
-            log.append("")
-            log.append("  [4] Limpieza de columnas numericas:")
-            n_num = 0
-            for col in df.select_dtypes(include="object").columns:
-                col_limpia = (df[col].astype(str)
-                              .str.replace(r"[$,\s]", "", regex=True)
-                              .str.replace(",", "."))
-                convertido = pd.to_numeric(col_limpia, errors="coerce")
-                if convertido.notna().sum() > len(df) * 0.7:
-                    df[col] = convertido
-                    n_num += 1
-                    log.append(f"      '{col}': convertida a numero")
-            if n_num == 0:
-                log.append("      Sin columnas de texto convertibles a numero.")
-
-            log.append("")
-            log.append(sep)
-            log.append(f"  Total de cambios aplicados: {cambios_total}")
-            log.append(f"  Filas finales            : {len(df):,}")
-            log.append(sep)
-
-            self._df_normalizado = df
-            escribir(txt3, "\n".join(log))
-
-        def aplicar_normalizacion():
-            if self._df_normalizado is None:
-                messagebox.showinfo("", "Primero haz clic en 'Normalizar'.")
-                return
-            self._cargar_df(self._df_normalizado,
-                            "[Normalizado] " + self.lbl_fuente.cget("text"))
-            win.destroy()
-
-        bf3 = tk.Frame(tab3, bg=BG)
-        bf3.pack(padx=12, pady=(10, 4), anchor="w")
-        tk.Button(bf3, text="  Normalizar  ",
-                  command=normalizar,
-                  bg=ACCENT, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 10, "bold"), cursor="hand2",
-                  pady=7, activebackground=HDR, activeforeground=WHITE
-                  ).pack(side="left")
-        tk.Button(bf3, text="  Aplicar y ver en tabla  ",
-                  command=aplicar_normalizacion,
-                  bg=SUCCESS, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 10, "bold"), cursor="hand2",
-                  pady=7, activebackground=HDR, activeforeground=WHITE,
-                  padx=12
-                  ).pack(side="left", padx=(10, 0))
-
-    # ── Helpers de UI ─────────────────────────────────────────────────────────
-    def _ventana(self, titulo, w, h):
-        win = tk.Toplevel(self)
-        win.title(titulo)
-        win.configure(bg=BG)
-        win.geometry(str(w) + "x" + str(h))
-        win.resizable(False, False)
-        win.grab_set()
+    # ──────────────────────────────────────────────────────────────────────────
+    def _form(self, titulo, w, h):
+        win = tk.Toplevel(self); win.title(titulo); win.configure(bg=BG)
+        win.geometry(f"{w}x{h}"); win.resizable(False,False); win.grab_set()
         return win
 
-    def _btn_win(self, win, texto, cmd, color):
-        tk.Button(win, text="  " + texto + "  ", command=cmd,
-                  bg=color, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 11, "bold"), cursor="hand2",
-                  pady=9, activebackground=HDR, activeforeground=WHITE
-                  ).pack(fill="x", padx=20, pady=(8,16))
-
     def _dialogo_lista(self, titulo, items, on_select, info_fn=None):
-        win = self._ventana(titulo, 380, 400)
-        tk.Label(win, text="Elige una opcion:",
-                 font=("Segoe UI", 11, "bold"), fg=TEXT, bg=BG
-                 ).pack(pady=(18,8), padx=20, anchor="w")
-        lb_frame = tk.Frame(win, bg=WHITE,
-                            highlightthickness=1, highlightbackground=BORDER)
-        lb_frame.pack(fill="both", expand=True, padx=20)
-        lb = tk.Listbox(lb_frame, bg=WHITE, fg=TEXT,
-                        selectbackground=ACCENT, selectforeground=WHITE,
-                        font=("Segoe UI", 11), relief="flat",
-                        borderwidth=0, activestyle="none",
-                        highlightthickness=0, cursor="hand2")
-        vsb = ttk.Scrollbar(lb_frame, command=lb.yview)
-        lb.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right", fill="y")
-        lb.pack(fill="both", expand=True)
+        win = self._form(titulo, 400, 420)
+        tk.Label(win, text=titulo, font=("Segoe UI",12,"bold"),
+                 fg=WHITE, bg=HDR_BG, pady=14).pack(fill="x")
+        tk.Label(win, text="Selecciona una opción:", font=("Segoe UI",10),
+                 fg=TEXT2, bg=BG).pack(pady=(14,4), padx=20, anchor="w")
+        lb_f = tk.Frame(win, bg=WHITE, highlightthickness=1, highlightbackground=BORDER)
+        lb_f.pack(fill="both", expand=True, padx=20)
+        lb = tk.Listbox(lb_f, bg=WHITE, fg=TEXT, selectbackground=ACCENT,
+                        selectforeground=WHITE, font=("Segoe UI",11), relief="flat",
+                        borderwidth=0, activestyle="none", highlightthickness=0, cursor="hand2")
+        vsb2 = ttk.Scrollbar(lb_f, command=lb.yview)
+        lb.configure(yscrollcommand=vsb2.set)
+        vsb2.pack(side="right", fill="y"); lb.pack(fill="both", expand=True)
         for it in items:
-            sufijo = "  (" + info_fn(it) + ")" if info_fn else ""
-            lb.insert("end", "  " + it + sufijo)
+            lb.insert("end", f"  {it}{'  ('+info_fn(it)+')' if info_fn else ''}")
         lb.selection_set(0)
-
         def cargar():
             sel = lb.curselection()
             if not sel: return
-            item = items[sel[0]]
-            win.destroy()
-            try:
-                on_select(item)
-            except Exception as e:
-                messagebox.showerror("Error", str(e))
-
+            item = items[sel[0]]; win.destroy()
+            try: on_select(item)
+            except Exception as e: messagebox.showerror("Error",str(e))
         lb.bind("<Double-Button-1>", lambda e: cargar())
-        self._btn_win(win, "Cargar", cargar, ACCENT)
+        _btn(win,"  Cargar  ",cargar,bg=ACCENT,px=20,py=9).pack(fill="x",padx=20,pady=(8,16))
 
-    # ── Limpieza y normalizacion automatica ───────────────────────────────────
-    def _limpiar_y_normalizar(self, df):
-        """Aplica limpieza y normalizacion al DataFrame. Retorna (df_limpio, resumen)."""
+    # ──────────────────────────────────────────────────────────────────────────
+    def _limpiar_df(self, df):
         df = df.copy()
-        pasos = []
-
-        # 1. Duplicados
-        antes = len(df)
-        df.drop_duplicates(inplace=True)
+        df.drop_duplicates(inplace=True); df.dropna(how="all", inplace=True)
         df.reset_index(drop=True, inplace=True)
-        n = antes - len(df)
-        if n:
-            pasos.append(f"{n} duplicados eliminados")
+        ct = df.select_dtypes(include="object").columns
+        df[ct] = df[ct].fillna("Sin datos")
+        cn = df.select_dtypes(include="number").columns
+        df[cn] = df[cn].fillna(0)
+        for col in ct: df[col] = df[col].astype(str).str.strip()
+        return df
 
-        # 2. Filas completamente vacias
-        antes = len(df)
-        df.dropna(how="all", inplace=True)
-        df.reset_index(drop=True, inplace=True)
-        n = antes - len(df)
-        if n:
-            pasos.append(f"{n} filas vacias eliminadas")
-
-        cols_texto = df.select_dtypes(include="object").columns
-        cols_num   = df.select_dtypes(include="number").columns
-
-        # 3. Nulos en texto
-        n = int(df[cols_texto].isnull().sum().sum())
-        if n:
-            df[cols_texto] = df[cols_texto].fillna("Sin datos")
-            pasos.append(f"{n} nulos de texto rellenados")
-
-        # 4. Nulos numericos
-        n = int(df[cols_num].isnull().sum().sum())
-        if n:
-            df[cols_num] = df[cols_num].fillna(0)
-            pasos.append(f"{n} nulos numericos rellenados")
-
-        # 5. Espacios extra
-        n_esp = 0
-        for col in cols_texto:
-            antes_col = df[col].copy()
-            df[col] = df[col].astype(str).str.strip()
-            n_esp += int((antes_col != df[col]).sum())
-        if n_esp:
-            pasos.append(f"{n_esp} espacios eliminados")
-
-        # 6. Title Case + correcciones de categoria
-        CORRECCIONES = {
-            "Salado":     {"salado","SALADO","Saladoo","salados","Salados"},
-            "Dulce":      {"dulce","DULCE","Dulces","dulces"},
-            "Reposteria": {"reposteria","REPOSTERIA","Reposterias","repostería","Repostería"},
-            "Temporada":  {"temporada","TEMPORADA","temporadas"},
-        }
-        n_corr = 0
-        for col in cols_texto:
-            antes_col = df[col].copy()
-            df[col] = df[col].astype(str).str.strip().str.title()
-            for correcto, variantes in CORRECCIONES.items():
-                mask = df[col].isin(variantes)
-                if mask.any():
-                    n_corr += int(mask.sum())
-                    df.loc[mask, col] = correcto
-            n_corr += int((antes_col != df[col]).sum())
-        if n_corr:
-            pasos.append(f"{n_corr} valores estandarizados")
-
-        # 7. Fechas a YYYY-MM-DD
-        n_fechas = 0
-        for col in df.columns:
-            if "fecha" in col.lower() or "date" in col.lower():
-                try:
-                    conv = pd.to_datetime(df[col], errors="coerce")
-                    v = int(conv.notna().sum())
-                    if v:
-                        df[col] = conv.dt.strftime("%Y-%m-%d").fillna(df[col])
-                        n_fechas += v
-                except Exception:
-                    pass
-        if n_fechas:
-            pasos.append(f"{n_fechas} fechas normalizadas")
-
-        resumen = " | ".join(pasos) if pasos else "Sin cambios necesarios"
-        return df, resumen
-
-    # ── Tabla ─────────────────────────────────────────────────────────────────
     def _cargar_df(self, df, fuente=""):
-        df_limpio, resumen = self._limpiar_y_normalizar(df)
-        self.df = df_limpio
-        self.search_var.set("")
-        self._llenar_tabla(self.df)
-        self.lbl_fuente.config(text=fuente)
-        self.lbl_status.config(text=fuente + "  —  " + resumen)
+        self.df = self._limpiar_df(df); self._df_fuente = fuente
 
     def _llenar_tabla(self, df):
         self.tree.delete(*self.tree.get_children())
-        cols = list(df.columns.astype(str))
-        self.tree["columns"] = cols
+        cols = list(df.columns.astype(str)); self.tree["columns"] = cols
         for c in cols:
-            self.tree.heading(c, text=c,
-                              command=lambda _c=c: self._ordenar(_c, False))
-            ancho = max(90, min(260, len(c)*11+24))
-            self.tree.column(c, width=ancho, minwidth=60, anchor="w")
-        for i, (_, row) in enumerate(df.iterrows()):
-            tag = "alt" if i % 2 else ""
-            self.tree.insert("", "end", tags=(tag,),
+            self.tree.heading(c, text=c, command=lambda _c=c: self._ordenar(_c,False))
+            self.tree.column(c, width=max(90,min(240,len(c)*11+24)), minwidth=60, anchor="w")
+        for i,(_, row) in enumerate(df.iterrows()):
+            self.tree.insert("","end", tags=("alt" if i%2 else "",),
                              values=[str(v) if pd.notna(v) else "" for v in row])
         self.tree.tag_configure("alt", background=ROW_ALT)
-        self.lbl_filas.config(text=str(len(df)) + " filas")
-        self.lbl_cols.config(text=str(len(cols)) + " columnas")
+        self.lbl_data_info.config(
+            text=f"{len(df):,} filas  ·  {len(cols)} columnas  ·  Fuente: {self._df_fuente}")
 
-    def _filtrar(self, *_):
+    def _filtrar_tabla(self, *_):
         if self.df is None: return
         q = self.search_var.get().lower()
-        if not q:
-            self._llenar_tabla(self.df); return
-        mask = self.df.apply(
-            lambda c: c.astype(str).str.lower()
-                       .str.contains(q, na=False)).any(axis=1)
-        self._llenar_tabla(self.df[mask])
+        df = self.df if not q else self.df[
+            self.df.apply(lambda c: c.astype(str).str.lower()
+                          .str.contains(q,na=False)).any(axis=1)]
+        self._llenar_tabla(df)
 
     def _ordenar(self, col, reverse):
         if self.df is None: return
         try:
-            self.df.sort_values(col, ascending=not reverse,
-                                inplace=True, ignore_index=True)
+            self.df.sort_values(col, ascending=not reverse, inplace=True, ignore_index=True)
             self._llenar_tabla(self.df)
-            self.tree.heading(col,
-                command=lambda: self._ordenar(col, not reverse))
-        except Exception:
-            pass
-
-    # ── Boton MongoDB: Guardar datos actuales en MongoDB ──────────────────────
-    def guardar_en_mongo(self):
-        if self.df is None or self.df.empty:
-            messagebox.showinfo("Sin datos",
-                "Primero carga datos usando alguno de los botones superiores.")
-            return
-
-        # Conectar si no esta conectado
-        if not self.db.is_connected:
-            try:
-                self.db.connect()
-            except Exception as e:
-                messagebox.showerror("Error MongoDB",
-                    "No se pudo conectar a MongoDB.\n" + str(e))
-                return
-
-        # Ventana de guardado
-        win = tk.Toplevel(self)
-        win.title("Guardar en MongoDB Atlas")
-        win.configure(bg=BG)
-        win.geometry("460x380")
-        win.resizable(False, False)
-        win.grab_set()
-
-        # Encabezado verde
-        tk.Label(win, text="MongoDB Atlas \u2014 Panaderia El Ranchero",
-                 font=("Segoe UI", 12, "bold"),
-                 bg="#13AA52", fg=WHITE, pady=12
-                 ).pack(fill="x")
-
-        # Campos
-        form = tk.Frame(win, bg=BG)
-        form.pack(fill="x", padx=24, pady=(18, 0))
-
-        def campo(parent, label, valor=""):
-            tk.Label(parent, text=label, font=("Segoe UI", 10),
-                     fg=TEXT2, bg=BG, anchor="w"
-                     ).pack(fill="x", pady=(8, 2))
-            var = tk.StringVar(value=valor)
-            tk.Entry(parent, textvariable=var, bg=WHITE, fg=TEXT,
-                     insertbackground=TEXT, relief="flat",
-                     font=("Segoe UI", 10),
-                     highlightthickness=1, highlightbackground=BORDER,
-                     highlightcolor="#13AA52"
-                     ).pack(fill="x", ipady=5)
-            return var
-
-        db_var  = campo(form, "Base de datos:", "panaderia")
-        col_var = campo(form, "Coleccion:",     "Excel_Ventas")
-
-        # Si ya existe
-        tk.Label(form, text="Si ya existe:", font=("Segoe UI", 10),
-                 fg=TEXT2, bg=BG, anchor="w"
-                 ).pack(fill="x", pady=(8, 2))
-        modo_var = tk.StringVar(value="Reemplazar coleccion")
-        ttk.Combobox(form, textvariable=modo_var, state="readonly",
-                     values=["Reemplazar coleccion", "Agregar documentos"],
-                     font=("Segoe UI", 10)
-                     ).pack(fill="x", ipady=3)
-
-        # Info filas
-        n_filas = len(self.df)
-        tk.Label(win, text="Datos listos: " + str(n_filas) + " filas",
-                 font=("Segoe UI", 10, "bold"),
-                 fg="#13AA52", bg=BG
-                 ).pack(anchor="w", padx=24, pady=(12, 0))
-
-        def guardar():
-            db_name = db_var.get().strip()
-            col_name = col_var.get().strip()
-            modo    = "replace" if "Reemplazar" in modo_var.get() else "append"
-            if not db_name or not col_name:
-                messagebox.showwarning("Faltan datos",
-                    "Escribe el nombre de la base de datos y la coleccion.")
-                return
-            try:
-                self.db.connect(db_name=db_name)
-                n = self.db.import_dataframe(self.df, col_name, if_exists=modo)
-                win.destroy()
-                messagebox.showinfo("Guardado exitoso",
-                    f"Se guardaron {n} registros en:\n"
-                    f"Base de datos: {db_name}\nColeccion: {col_name}")
-                self.lbl_status.config(
-                    text="Guardado en MongoDB: " + db_name + "/" + col_name +
-                         " (" + str(n) + " registros)")
-            except Exception as e:
-                messagebox.showerror("Error", "No se pudo guardar:\n" + str(e))
-
-        tk.Button(win, text="  Guardar en MongoDB Atlas  ",
-                  command=guardar,
-                  bg="#13AA52", fg=WHITE, relief="flat",
-                  font=("Segoe UI", 11, "bold"), cursor="hand2",
-                  pady=10, activebackground=HDR, activeforeground=WHITE
-                  ).pack(fill="x", padx=24, pady=(10, 16))
-
-    # ── Helpers de deteccion de columnas ─────────────────────────────────────
-    def _col(self, df, *keywords):
-        """Devuelve el nombre de la primera columna que contenga alguna keyword."""
-        cols_lower = {c.lower(): c for c in df.columns}
-        for kw in keywords:
-            for lc, orig in cols_lower.items():
-                if kw in lc:
-                    return orig
-        return None
-
-    # ── Boton KPIs: Dashboard de indicadores clave ────────────────────────────
-    def ver_kpis(self):
-        """Dashboard interactivo: KPIs, graficos, filtros y detalle."""
-        try:
-            from matplotlib.figure import Figure
-            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-            import matplotlib.ticker as mticker
-        except ImportError:
-            messagebox.showerror("Falta libreria",
-                "Instala matplotlib:\n  .venv\\Scripts\\python.exe -m pip install matplotlib")
-            return
-
-        usar_df_cargado = self.df is not None and not self.df.empty
-
-        if usar_df_cargado:
-            df_v = self.df.copy()
-            fuente_label = self.lbl_fuente.cget("text")
-
-            col_total  = self._col(df_v, "total", "ingreso", "venta", "importe",
-                                   "monto", "amount", "revenue", "precio", "price")
-            col_fecha  = self._col(df_v, "fecha", "date", "dia", "time")
-            col_cat    = self._col(df_v, "categor", "tipo", "type", "category")
-            col_prod   = self._col(df_v, "product", "articulo", "item", "nombre", "name")
-            col_cant   = self._col(df_v, "cantidad", "cant", "qty", "quantity", "unidad")
-            col_harina = self._col(df_v, "harina", "flour")
-            col_huevo  = self._col(df_v, "huevo", "egg")
-            col_azucar = self._col(df_v, "azucar", "sugar", "dulce")
-
-            if col_total is None:
-                nums = df_v.select_dtypes(include="number").columns.tolist()
-                col_total = nums[0] if nums else None
-
-            df_v["_total"]    = pd.to_numeric(df_v[col_total], errors="coerce").fillna(0) if col_total else 0
-            df_v["_cantidad"] = pd.to_numeric(df_v[col_cant],  errors="coerce").fillna(0) if col_cant  else df_v["_total"]
-
-            if col_fecha:
-                df_v["_fecha_dt"]  = pd.to_datetime(df_v[col_fecha], errors="coerce")
-                df_v["_fecha_str"] = df_v["_fecha_dt"].dt.strftime("%Y-%m-%d").fillna("Sin fecha")
-                df_v["_dia_sem"]   = df_v["_fecha_dt"].dt.dayofweek.fillna(0).astype(int)
-                df_v["_mes"]       = df_v["_fecha_dt"].dt.month.fillna(1).astype(int)
-            else:
-                df_v["_fecha_str"] = "Sin fecha"
-                df_v["_dia_sem"]   = 0
-                df_v["_mes"]       = 1
-
-            df_v["_categoria"] = df_v[col_cat].astype(str)  if col_cat  else "Sin categoria"
-            df_v["_producto"]  = df_v[col_prod].astype(str) if col_prod else "Producto"
-            df_v["_harina_kg"] = pd.to_numeric(df_v[col_harina], errors="coerce").fillna(0) if col_harina else 0
-            df_v["_huevo_kg"]  = pd.to_numeric(df_v[col_huevo],  errors="coerce").fillna(0) if col_huevo  else 0
-            df_v["_azucar_kg"] = pd.to_numeric(df_v[col_azucar], errors="coerce").fillna(0) if col_azucar else 0
-
-            df_i = pd.DataFrame()
-            if self.db.is_connected:
-                try:
-                    df_i = self.db.read_table("Insumos")
-                except Exception:
-                    pass
-
-            if not df_i.empty:
-                df_i["huevo_kg"]  = pd.to_numeric(df_i.get("huevo_kg",  0), errors="coerce").fillna(0)
-                df_i["harina_kg"] = pd.to_numeric(df_i.get("harina_kg", 0), errors="coerce").fillna(0)
-                df_i["azucar_kg"] = pd.to_numeric(df_i.get("azucar_kg", 0), errors="coerce").fillna(0)
-            else:
-                df_i = pd.DataFrame({
-                    "huevo_kg":  df_v["_huevo_kg"].values,
-                    "harina_kg": df_v["_harina_kg"].values,
-                    "azucar_kg": df_v["_azucar_kg"].values,
-                })
-
-            _col_total = "_total"; _col_cant = "_cantidad"
-            _col_fecha = "_fecha_str"; _col_dia_sem = "_dia_sem"; _col_mes = "_mes"
-            _col_cat   = "_categoria"; _col_prod = "_producto"
-
-        else:
-            if not self.db.is_connected:
-                try:
-                    self.db.connect()
-                except Exception as e:
-                    messagebox.showerror("Error MongoDB",
-                        "No se pudo conectar a MongoDB.\n" + str(e))
-                    return
-            if not self.db.is_panaderia_ready():
-                self.db.init_panaderia()
-
-            df_v = self.db.read_table("Ventas")
-            df_i = self.db.read_table("Insumos")
-            fuente_label = "BD: Ventas (MongoDB)"
-
-            # Mapeo estandar para datos MongoDB
-            df_v["_total"]    = pd.to_numeric(df_v["total"],    errors="coerce").fillna(0)
-            df_v["_cantidad"] = pd.to_numeric(df_v["cantidad"], errors="coerce").fillna(0)
-            df_v["_fecha_dt"] = pd.to_datetime(df_v["fecha"], errors="coerce")
-            df_v["_fecha_str"]= df_v["fecha"].astype(str)
-            df_v["_dia_sem"]  = df_v["_fecha_dt"].dt.dayofweek.fillna(0).astype(int)
-            df_v["_mes"]      = df_v["_fecha_dt"].dt.month.fillna(1).astype(int)
-            df_v["_categoria"]= df_v["categoria"].astype(str)
-            df_v["_producto"] = df_v["producto"].astype(str)
-
-            df_i["huevo_kg"]  = pd.to_numeric(df_i["huevo_kg"],  errors="coerce").fillna(0)
-            df_i["harina_kg"] = pd.to_numeric(df_i["harina_kg"], errors="coerce").fillna(0)
-            df_i["azucar_kg"] = pd.to_numeric(df_i["azucar_kg"], errors="coerce").fillna(0)
-
-            _col_total = "_total"; _col_cant = "_cantidad"
-            _col_fecha = "_fecha_str"; _col_dia_sem = "_dia_sem"; _col_mes = "_mes"
-            _col_cat   = "_categoria"; _col_prod = "_producto"
-
-        if df_v.empty:
-            messagebox.showinfo("Sin datos",
-                "No hay datos cargados. Carga un Excel o selecciona una tabla de MongoDB.")
-            return
-
-        df_v_full = df_v.copy()
-        df_i_full = df_i.copy()
-
-        # ── Funcion central de calculo ────────────────────────────────────
-        def calcular_todo(df_sub, df_i_sub):
-            DEMO_COMENTS = [
-                "rico fresco excelente siempre vuelvo",  "seco duro quemado tardaron",
-                "delicioso pan caliente amable rapido",  "frio insipido malo servicio",
-                "esponjoso crujiente barato buenisimo",  "sucio grasoso desabrido",
-                "increible fresco sabroso recomiendo",   "pesado crudo caro",
-                "limpio rapido bueno favorito",          "amargo seco pequeno viejo",
-                "maravilloso suave perfecto encanta",    "terrible tardaron horrible",
-                "esponjoso caliente rico vuelvo",        "frio duro seco",
-                "excelente fresco sabroso genial",       "malo pesimo sucio",
-                "rico delicioso perfecto",               "quemado crudo frio",
-                "bueno fresco rapido",                   "seco insipido malo",
-                "increible esponjoso caliente fresco",   "tarde sucio caro",
-                "recomiendo rico sabroso",               "frio seco duro",
-                "excelente buenisimo amable",            "crudo quemado malo",
-                "fresco caliente delicioso",             "sucio desabrido",
-                "sabroso rico bueno fresco",             "tarde frio seco",
-                "limpio rapido excelente rico",          "grasoso pesado caro",
-                "bueno fresco caliente",                 "viejo seco malo",
-                "genial esponjoso sabroso",              "horrible tarde frio",
-                "delicioso rico fresco",                 "crudo quemado duro",
-                "maravilloso buenisimo limpio",          "malo insipido seco",
-                "encanta favorito rico caliente",        "tarde tardaron sucio",
-                "espectacular fresco sabroso",           "pesado grasoso feo",
-                "vuelvo siempre rico fresco",            "caro pequeno malo",
-                "excelente amable rapido bueno",         "frio seco insipido",
-                "buenisimo esponjoso caliente",          "seco duro crudo",
-            ]
-            cp  = sum(1 for c in DEMO_COMENTS if any(p in c for p in PALABRAS_POSITIVAS))
-            cn  = sum(1 for c in DEMO_COMENTS if any(p in c for p in PALABRAS_NEGATIVAS))
-            tc  = len(DEMO_COMENTS)
-            tsc = round(cp / tc * 100, 1)
-            snp = round(cn / tc * 100, 1)
-
-            it     = df_sub[_col_total].sum()
-            dp     = max(df_sub[_col_fecha].nunique(), 1)
-            nt     = len(df_sub)
-            n_prod = df_sub[_col_prod].nunique()
-            pvd    = round(it / dp, 2)
-
-            cat_tot = df_sub.groupby(_col_cat)[_col_total].sum()
-            top_cat = cat_tot.idxmax() if not cat_tot.empty else "N/A"
-            tpc     = round(cat_tot[top_cat] / it * 100, 1) if it > 0 and top_cat != "N/A" else 0
-
-            iri_harina = round(df_i_sub["harina_kg"].mean(), 2)
-
-            vfs  = df_sub[df_sub[_col_dia_sem].isin([4,5,6])][_col_total].sum()
-            tvfs = round(vfs / it * 100, 1) if it > 0 else 0
-
-            fds_dia = df_sub[df_sub[_col_dia_sem].isin([4,5,6])].groupby(_col_fecha)[_col_total].sum().mean()
-            sem_dia = df_sub[~df_sub[_col_dia_sem].isin([4,5,6])].groupby(_col_fecha)[_col_total].sum().mean()
-            if pd.isna(fds_dia): fds_dia = 0
-            if pd.isna(sem_dia): sem_dia = 0
-            vvc = round((fds_dia - sem_dia) / sem_dia * 100, 1) if sem_dia > 0 else 0
-
-            prod_cant = df_sub.groupby(_col_prod)[_col_cant].sum()
-            pmvu_nom  = prod_cant.idxmax() if not prod_cant.empty else "N/A"
-            pmvu_cant = int(prod_cant.max()) if not prod_cant.empty else 0
-
-            ipt = round(it / nt, 2) if nt > 0 else 0
-
-            tr    = len(df_sub) + len(df_i_sub)
-            nulos = int(df_sub.isnull().sum().sum()) + int(df_i_sub.isnull().sum().sum())
-            rc    = tr - nulos
-            tcd   = round(rc / tr * 100, 1) if tr > 0 else 0
-
-            n_mes         = max(df_sub[_col_mes].nunique(), 1)
-            prom_prod_mes = it / (n_prod * n_mes) if (n_prod * n_mes) > 0 else 1
-            prod_top_total = df_sub.groupby(_col_prod)[_col_total].sum()
-            prod_estrella  = "Pan de Muerto" if "Pan de Muerto" in df_sub[_col_prod].values else (
-                             prod_top_total.idxmax() if not prod_top_total.empty else None)
-            if prod_estrella:
-                pm_df    = df_sub[df_sub[_col_prod] == prod_estrella]
-                meses_pm = max(pm_df[_col_mes].nunique(), 1)
-                pm_mens  = pm_df[_col_total].sum() / meses_pm
-                iep      = round(pm_mens / prom_prod_mes, 2)
-            else:
-                iep = 0.0
-
-            tic = df_i_sub["huevo_kg"].sum() + df_i_sub["harina_kg"].sum() + df_i_sub["azucar_kg"].sum()
-            eui = round(it / tic, 2) if tic > 0 else 0
-
-            kpis = [
-                dict(num=1,  sigla="TSC", color="#2D7A4F",
-                     nombre="Tasa de Satisfaccion del Cliente",
-                     objetivo="Medir la percepcion positiva en comentarios de clientes",
-                     formula="TSC = (CP / TC) x 100",
-                     vars_="CP = Comentarios positivos   |   TC = Total comentarios",
-                     calculo=f"{cp} / {tc} x 100",
-                     valor=f"{tsc} %", meta="Meta: >= 70 %", ok=tsc >= 70),
-                dict(num=2,  sigla="PVD", color="#4A7FA5",
-                     nombre="Promedio de Ventas Diarias",
-                     objetivo="Ingreso promedio generado por dia en el periodo analizado",
-                     formula="PVD = IT / DP",
-                     vars_="IT = Ingresos totales   |   DP = Dias del periodo",
-                     calculo=f"${it:,.0f} / {dp} dias",
-                     valor=f"${pvd:,.2f}", meta=f"Periodo: {dp} dias", ok=True),
-                dict(num=3,  sigla="TPC", color=ACCENT,
-                     nombre="Participacion de Categoria Lider",
-                     objetivo="Identificar la categoria con mayor peso en las ventas",
-                     formula="TPC = (VC / VT) x 100",
-                     vars_="VC = Ventas de la categoria   |   VT = Ventas totales",
-                     calculo=f"Categoria: {top_cat}",
-                     valor=f"{tpc} %", meta="Lider del catalogo", ok=True),
-                dict(num=4,  sigla="IRI", color="#2E86AB",
-                     nombre="Indice de Rotacion de Insumos",
-                     objetivo="Kg promedio de harina consumidos por dia de operacion",
-                     formula="IRI = IC / DP",
-                     vars_="IC = Insumo consumido (kg)   |   DP = Dias del periodo",
-                     calculo="Promedio diario harina",
-                     valor=f"{iri_harina} kg/dia", meta="Base esperada: ~12 kg/dia",
-                     ok=abs(iri_harina - 12) <= 2),
-                dict(num=5,  sigla="TVFS", color=PURPLE,
-                     nombre="Tasa de Ventas en Fin de Semana",
-                     objetivo="Medir el impacto del fin de semana (Vie-Dom) sobre ventas",
-                     formula="TVFS = (VFS / VT) x 100",
-                     vars_="VFS = Ventas Vie+Sab+Dom   |   VT = Ventas totales",
-                     calculo=f"${vfs:,.0f} / ${it:,.0f} x 100",
-                     valor=f"{tvfs} %", meta="Esperado: 42 - 48 %",
-                     ok=38 <= tvfs <= 55),
-                dict(num=6,  sigla="VVC", color="#8B6914",
-                     nombre="Variacion de Ventas Fin de Semana",
-                     objetivo="Cuantificar el alza de ventas en dias de descanso vs dias habiles",
-                     formula="VVC = ((FDS_dia - ES_dia) / ES_dia) x 100",
-                     vars_="FDS_dia = Promedio diario FDS   |   ES_dia = Promedio entre semana",
-                     calculo=f"(${fds_dia:,.0f} - ${sem_dia:,.0f}) / ${sem_dia:,.0f}",
-                     valor=(f"+{vvc} %" if vvc >= 0 else f"{vvc} %"),
-                     meta="Esperado: +10 % a +30 %", ok=vvc >= 10),
-                dict(num=7,  sigla="PMVU", color="#5B4A8A",
-                     nombre="Producto Mas Vendido por Unidades",
-                     objetivo="Identificar el producto lider en volumen de unidades vendidas",
-                     formula="PMVU = Moda( MAX( SUM(cantidad) ) )",
-                     vars_="cantidad = Unidades vendidas por registro de venta",
-                     calculo=f"MAX de {n_prod} productos distintos",
-                     valor=pmvu_nom, meta=f"{pmvu_cant:,} unidades", ok=True),
-                dict(num=8,  sigla="IPT", color="#1A6B6B",
-                     nombre="Ingreso Promedio por Transaccion",
-                     objetivo="Cuanto genera en promedio cada registro individual de venta",
-                     formula="IPT = IT / NT",
-                     vars_="IT = Ingresos totales   |   NT = Numero de transacciones",
-                     calculo=f"${it:,.0f} / {nt:,}",
-                     valor=f"${ipt:,.2f}", meta=f"{nt:,} transacciones totales", ok=True),
-                dict(num=9,  sigla="TCD", color="#2D7A4F",
-                     nombre="Tasa de Calidad de Datos",
-                     objetivo="Medir completitud y limpieza del data lake en MongoDB",
-                     formula="TCD = (RC / TR) x 100",
-                     vars_="RC = Registros completos   |   TR = Total de registros",
-                     calculo=f"{rc:,} / {tr:,} x 100",
-                     valor=f"{tcd} %", meta="Meta: >= 95 %", ok=tcd >= 95),
-                dict(num=10, sigla="DPE", color="#9B5A1A",
-                     nombre="Desempeno del Producto Estrella",
-                     objetivo="Si el producto estrella supera el promedio mensual por producto",
-                     formula="DPE = VT_mes / Prom_mensual_producto",
-                     vars_="VT_mes = Ventas en temporada   |   Prom = Promedio mensual",
-                     calculo=f"{prod_estrella or 'N/A'} vs promedio mensual",
-                     valor=f"{iep:.2f} x", meta="DPE > 1 = supera el promedio", ok=iep >= 1),
-                dict(num=11, sigla="SNP", color="#B03030",
-                     nombre="Sentimiento Negativo por Periodo",
-                     objetivo="Alertar cuando las quejas de clientes superan el umbral critico",
-                     formula="SNP = (CN / TC) x 100",
-                     vars_="CN = Comentarios negativos   |   TC = Total comentarios",
-                     calculo=f"{cn} / {tc} x 100",
-                     valor=f"{snp} %", meta="Alerta critica si > 20 %", ok=snp <= 20),
-                dict(num=12, sigla="EUI", color="#4A7A3A",
-                     nombre="Eficiencia de Uso de Insumos",
-                     objetivo="Ingreso generado por cada kg de insumo (huevo+harina+azucar)",
-                     formula="EUI = IT / TIC",
-                     vars_="IT = Ingresos totales   |   TIC = Total insumos consumidos (kg)",
-                     calculo=f"${it:,.0f} / {tic:,.0f} kg",
-                     valor=f"${eui:,.2f} / kg", meta="Mayor valor = mayor eficiencia", ok=True),
-            ]
-
-            daily     = df_sub.groupby(_col_fecha)[_col_total].sum()
-            cat_data  = df_sub.groupby(_col_cat)[_col_total].sum().sort_values(ascending=False).head(8)
-            prod_data = df_sub.groupby(_col_prod)[_col_cant].sum().sort_values(ascending=False).head(5)
-
-            return kpis, {"it": it, "dp": dp, "nt": nt,
-                          "daily": daily, "cat_data": cat_data,
-                          "prod_data": prod_data, "tsc": tsc, "snp": snp}
-
-        # ── Ventana principal ─────────────────────────────────────────────
-        win = tk.Toplevel(self)
-        win.title("Dashboard KPIs — Panaderia El Ranchero")
-        win.configure(bg=HDR)
-        win.geometry("1100x800")
-        win.minsize(920, 620)
-
-        hdr_f = tk.Frame(win, bg=HDR)
-        hdr_f.pack(fill="x")
-        tk.Label(hdr_f, text="Dashboard KPIs — Panaderia El Ranchero",
-                 font=("Segoe UI", 14, "bold"), bg=HDR, fg=WHITE, pady=10
-                 ).pack(side="left", padx=20)
-        lbl_info = tk.Label(hdr_f, text="", font=("Segoe UI", 9), bg=HDR, fg="#C8A080")
-        lbl_info.pack(side="right", padx=20)
-
-        # Barra de filtros
-        fbar = tk.Frame(win, bg=BG, pady=7,
-                        highlightthickness=1, highlightbackground=BORDER)
-        fbar.pack(fill="x")
-        tk.Label(fbar, text="  Filtros:", font=("Segoe UI", 10, "bold"),
-                 fg=TEXT, bg=BG).pack(side="left", padx=(8, 10))
-
-        categorias = ["Todas"] + sorted(
-            [c for c in df_v_full[_col_cat].dropna().unique().tolist()
-             if c not in ("Sin categoria", "nan")])
-        cat_var = tk.StringVar(value="Todas")
-        tk.Label(fbar, text="Categoria:", font=("Segoe UI", 9),
-                 fg=TEXT2, bg=BG).pack(side="left")
-        ttk.Combobox(fbar, textvariable=cat_var, values=categorias,
-                     state="readonly", width=16, font=("Segoe UI", 9)
-                     ).pack(side="left", padx=(4, 14))
-
-        fechas_unicas = sorted([f for f in df_v_full[_col_fecha].dropna().unique()
-                                 if f not in ("Sin fecha", "nan")])
-        fecha_desde_var = tk.StringVar(value=fechas_unicas[0]  if fechas_unicas else "")
-        fecha_hasta_var = tk.StringVar(value=fechas_unicas[-1] if fechas_unicas else "")
-
-        if fechas_unicas:
-            tk.Label(fbar, text="Desde:", font=("Segoe UI", 9),
-                     fg=TEXT2, bg=BG).pack(side="left")
-            ttk.Combobox(fbar, textvariable=fecha_desde_var, values=fechas_unicas,
-                         state="readonly", width=13, font=("Segoe UI", 9)
-                         ).pack(side="left", padx=(4, 8))
-            tk.Label(fbar, text="Hasta:", font=("Segoe UI", 9),
-                     fg=TEXT2, bg=BG).pack(side="left")
-            ttk.Combobox(fbar, textvariable=fecha_hasta_var, values=fechas_unicas,
-                         state="readonly", width=13, font=("Segoe UI", 9)
-                         ).pack(side="left", padx=(4, 14))
-
-        # Notebook con 3 tabs
-        nb = ttk.Notebook(win)
-        nb.pack(fill="both", expand=True, padx=10, pady=(4, 10))
-
-        tab_resumen  = tk.Frame(nb, bg=BG)
-        tab_analisis = tk.Frame(nb, bg=BG)
-        tab_detalle  = tk.Frame(nb, bg=BG)
-        nb.add(tab_resumen,  text="  Resumen  ")
-        nb.add(tab_analisis, text="  Analisis y Graficos  ")
-        nb.add(tab_detalle,  text="  Detalle / Desglose  ")
-
-        # Tab 1: Resumen con tarjetas KPI
-        def render_resumen(kpis, summ):
-            for w in tab_resumen.winfo_children(): w.destroy()
-            ok_count = sum(1 for k in kpis if k["ok"])
-
-            srow = tk.Frame(tab_resumen, bg=BG)
-            srow.pack(fill="x", padx=14, pady=(10, 6))
-            for label, value, color in [
-                ("Ingresos Totales", f"${summ['it']:,.0f}", SUCCESS),
-                ("Dias Analizados",  str(summ["dp"]),        BLUE),
-                ("Transacciones",    f"{summ['nt']:,}",      ACCENT),
-                ("KPIs en Rango",    f"{ok_count}/{len(kpis)}", GOLD),
-            ]:
-                box = tk.Frame(srow, bg=color, padx=18, pady=8)
-                box.pack(side="left", padx=(0, 10))
-                tk.Label(box, text=value, font=("Segoe UI", 14, "bold"),
-                         fg=WHITE, bg=color).pack()
-                tk.Label(box, text=label, font=("Segoe UI", 8),
-                         fg=WHITE, bg=color).pack()
-
-            outer = tk.Frame(tab_resumen, bg=BG)
-            outer.pack(fill="both", expand=True)
-            canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
-            vsb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-            canvas.configure(yscrollcommand=vsb.set)
-            vsb.pack(side="right", fill="y")
-            canvas.pack(side="left", fill="both", expand=True)
-            inner = tk.Frame(canvas, bg=BG)
-            wid = canvas.create_window((0, 0), window=inner, anchor="nw")
-            inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-            canvas.bind("<Configure>", lambda e: canvas.itemconfig(wid, width=e.width))
-            canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>",
-                lambda ev: canvas.yview_scroll(int(-1*(ev.delta/120)), "units")))
-            canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
-            inner.columnconfigure(0, weight=1, uniform="c")
-            inner.columnconfigure(1, weight=1, uniform="c")
-
-            for idx, k in enumerate(kpis):
-                card = tk.Frame(inner, bg=WHITE,
-                                highlightthickness=2, highlightbackground=k["color"])
-                card.grid(row=idx//2, column=idx%2, padx=10, pady=7, sticky="nsew")
-                tk.Frame(card, bg=k["color"], height=5).pack(fill="x")
-                body = tk.Frame(card, bg=WHITE, padx=12, pady=8)
-                body.pack(fill="both", expand=True)
-                hrow = tk.Frame(body, bg=WHITE)
-                hrow.pack(fill="x")
-                tk.Label(hrow, text=f" KPI {k['num']} ",
-                         font=("Segoe UI", 8, "bold"),
-                         bg=k["color"], fg=WHITE, pady=2).pack(side="left")
-                tk.Label(hrow, text=f"  {k['sigla']}",
-                         font=("Segoe UI", 10, "bold"),
-                         bg=WHITE, fg=k["color"]).pack(side="left")
-                badge = SUCCESS if k["ok"] else DANGER
-                tk.Label(hrow, text=(" OK " if k["ok"] else " REVISAR "),
-                         font=("Segoe UI", 8, "bold"),
-                         bg=badge, fg=WHITE, pady=2).pack(side="right")
-                tk.Label(body, text=k["nombre"],
-                         font=("Segoe UI", 10, "bold"), fg=TEXT, bg=WHITE,
-                         wraplength=380, justify="left").pack(anchor="w", pady=(5, 1))
-                tk.Label(body, text=k["objetivo"],
-                         font=("Segoe UI", 8), fg=TEXT2, bg=WHITE,
-                         wraplength=380, justify="left").pack(anchor="w")
-                fbox = tk.Frame(body, bg="#F0EBE3",
-                                highlightthickness=1, highlightbackground=BORDER)
-                fbox.pack(fill="x", pady=(7, 3))
-                tk.Label(fbox, text=k["formula"],
-                         font=("Consolas", 9, "bold"), fg=k["color"], bg="#F0EBE3",
-                         padx=8, pady=3).pack(anchor="w")
-                tk.Label(fbox, text=k["vars_"],
-                         font=("Segoe UI", 8), fg=TEXT2, bg="#F0EBE3",
-                         padx=8, pady=2).pack(anchor="w")
-                tk.Label(body, text="= " + k["calculo"],
-                         font=("Segoe UI", 8), fg=TEXT2, bg=WHITE).pack(anchor="w", pady=(2, 0))
-                res_bar = tk.Frame(body, bg=k["color"])
-                res_bar.pack(fill="x", pady=(5, 0))
-                tk.Label(res_bar, text=k["valor"],
-                         font=("Segoe UI", 13, "bold"), fg=WHITE, bg=k["color"], pady=5
-                         ).pack(side="left", padx=10)
-                tk.Label(res_bar, text=k["meta"],
-                         font=("Segoe UI", 8), fg=WHITE, bg=k["color"]
-                         ).pack(side="right", padx=8)
-
-        # Tab 2: Graficos con matplotlib
-        def render_analisis(df_sub, summ):
-            for w in tab_analisis.winfo_children(): w.destroy()
-            COLORS_BAR = [ACCENT, BLUE, PURPLE, SUCCESS, GOLD,
-                          "#2E86AB", "#8B6914", "#5B4A8A"]
-
-            fig = Figure(figsize=(10.5, 8.2), facecolor=BG)
-            fig.subplots_adjust(hspace=0.52, wspace=0.38,
-                                left=0.09, right=0.97, top=0.93, bottom=0.08)
-            axes = fig.subplots(2, 2)
-
-            ax1 = axes[0, 0]
-            daily = summ["daily"]
-            if len(daily) >= 2:
-                x = list(range(len(daily)))
-                ax1.plot(x, daily.values, color=ACCENT, linewidth=2,
-                         marker="o", markersize=3)
-                ax1.fill_between(x, daily.values, alpha=0.15, color=ACCENT)
-                labels = list(daily.index)
-                step = max(1, len(labels) // 8)
-                ax1.set_xticks(x[::step])
-                ax1.set_xticklabels(labels[::step], rotation=35,
-                                    fontsize=7, ha="right")
-                ax1.yaxis.set_major_formatter(
-                    mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
-            else:
-                ax1.text(0.5, 0.5, "Sin datos de fecha",
-                         ha="center", va="center",
-                         transform=ax1.transAxes, color=TEXT2)
-            ax1.set_title("Tendencia de Ventas Diarias",
-                          fontsize=10, color=HDR, fontweight="bold")
-            ax1.set_facecolor(WHITE)
-            ax1.tick_params(axis="y", labelsize=7)
-            ax1.spines["top"].set_visible(False)
-            ax1.spines["right"].set_visible(False)
-
-            ax2 = axes[0, 1]
-            cat_data = summ["cat_data"]
-            if not cat_data.empty:
-                cols_g = [COLORS_BAR[i % len(COLORS_BAR)] for i in range(len(cat_data))]
-                bars = ax2.barh(cat_data.index.tolist(), cat_data.values,
-                                color=cols_g, height=0.6)
-                ax2.xaxis.set_major_formatter(
-                    mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
-                for bar, val in zip(bars, cat_data.values):
-                    ax2.text(bar.get_width() * 1.01,
-                             bar.get_y() + bar.get_height() / 2,
-                             f"${val:,.0f}", va="center", fontsize=6, color=TEXT)
-            else:
-                ax2.text(0.5, 0.5, "Sin datos", ha="center", va="center",
-                         transform=ax2.transAxes, color=TEXT2)
-            ax2.set_title("Ventas por Categoria",
-                          fontsize=10, color=HDR, fontweight="bold")
-            ax2.set_facecolor(WHITE)
-            ax2.tick_params(axis="both", labelsize=7)
-            ax2.spines["top"].set_visible(False)
-            ax2.spines["right"].set_visible(False)
-
-            ax3 = axes[1, 0]
-            prod_data = summ["prod_data"]
-            if not prod_data.empty:
-                pcolors = COLORS_BAR[:len(prod_data)]
-                _, _, autotexts = ax3.pie(
-                    prod_data.values,
-                    labels=[str(p)[:18] for p in prod_data.index],
-                    colors=pcolors, autopct="%1.1f%%", startangle=90,
-                    textprops={"fontsize": 7})
-                for at in autotexts:
-                    at.set_fontsize(7)
-            else:
-                ax3.text(0.5, 0.5, "Sin datos", ha="center", va="center",
-                         transform=ax3.transAxes, color=TEXT2)
-            ax3.set_title("Top 5 Productos por Unidades",
-                          fontsize=10, color=HDR, fontweight="bold")
-
-            ax4 = axes[1, 1]
-            tsc_v = summ["tsc"]; snp_v = summ["snp"]
-            neutral = max(0.0, 100.0 - tsc_v - snp_v)
-            _, _, auto4 = ax4.pie(
-                [tsc_v, snp_v, neutral],
-                labels=["Positivo", "Negativo", "Neutro"],
-                colors=[SUCCESS, DANGER, "#CCCCCC"],
-                autopct="%1.1f%%", startangle=90,
-                wedgeprops={"width": 0.6},
-                textprops={"fontsize": 8})
-            for a in auto4: a.set_fontsize(7)
-            ax4.set_title("Sentimiento de Clientes",
-                          fontsize=10, color=HDR, fontweight="bold")
-
-            canvas_fig = FigureCanvasTkAgg(fig, master=tab_analisis)
-            canvas_fig.draw()
-            canvas_fig.get_tk_widget().pack(fill="both", expand=True, padx=8, pady=8)
-
-        # Tab 3: Detalle / Desglose
-        def render_detalle(df_sub):
-            for w in tab_detalle.winfo_children(): w.destroy()
-            tk.Label(tab_detalle,
-                     text=f"Detalle de datos filtrados  -  {len(df_sub):,} registros",
-                     font=("Segoe UI", 10, "bold"), fg=TEXT, bg=BG
-                     ).pack(anchor="w", padx=14, pady=(10, 4))
-
-            tf = tk.Frame(tab_detalle, bg=WHITE)
-            tf.pack(fill="both", expand=True, padx=10, pady=(0, 6))
-            cols_show = [c for c in df_sub.columns if not c.startswith("_")]
-            tree = ttk.Treeview(tf, style="App.Treeview", show="headings",
-                                selectmode="browse", columns=cols_show)
-            vsb2 = ttk.Scrollbar(tf, orient="vertical",   command=tree.yview)
-            hsb2 = ttk.Scrollbar(tf, orient="horizontal", command=tree.xview)
-            tree.configure(yscrollcommand=vsb2.set, xscrollcommand=hsb2.set)
-            tree.grid(row=0, column=0, sticky="nsew")
-            vsb2.grid(row=0, column=1, sticky="ns")
-            hsb2.grid(row=1, column=0, sticky="ew")
-            tf.rowconfigure(0, weight=1); tf.columnconfigure(0, weight=1)
-            for c in cols_show:
-                tree.heading(c, text=c)
-                tree.column(c, width=max(80, min(200, len(c)*11+20)),
-                            minwidth=60, anchor="w")
-            for i, (_, row) in enumerate(df_sub[cols_show].head(500).iterrows()):
-                tag = "alt" if i % 2 else ""
-                tree.insert("", "end", tags=(tag,),
-                            values=[str(v) if pd.notna(v) else "" for v in row])
-            tree.tag_configure("alt", background=ROW_ALT)
-            if len(df_sub) > 500:
-                tk.Label(tab_detalle,
-                         text=f"  Mostrando primeros 500 de {len(df_sub):,} registros",
-                         font=("Segoe UI", 8), fg=TEXT2, bg=BG
-                         ).pack(anchor="w", padx=14, pady=(2, 4))
-
-        # Aplicar / Resetear filtros
-        def aplicar_filtros(*_):
-            df_sub = df_v_full.copy()
-            cat_sel = cat_var.get()
-            if cat_sel != "Todas":
-                df_sub = df_sub[df_sub[_col_cat] == cat_sel]
-            if fechas_unicas:
-                desde = fecha_desde_var.get()
-                hasta = fecha_hasta_var.get()
-                if desde: df_sub = df_sub[df_sub[_col_fecha] >= desde]
-                if hasta: df_sub = df_sub[df_sub[_col_fecha] <= hasta]
-            if df_sub.empty:
-                messagebox.showinfo("Sin resultados",
-                    "No hay datos con los filtros seleccionados.")
-                return
-            kpis, summ = calcular_todo(df_sub, df_i_full)
-            ok_count = sum(1 for k in kpis if k["ok"])
-            lbl_info.config(
-                text=(f"{summ['nt']:,} transacciones  |  {summ['dp']} dias  |  "
-                      f"{ok_count}/{len(kpis)} KPIs en rango  |  {fuente_label}"))
-            render_resumen(kpis, summ)
-            render_analisis(df_sub, summ)
-            render_detalle(df_sub)
-
-        def resetear_filtros():
-            cat_var.set("Todas")
-            if fechas_unicas:
-                fecha_desde_var.set(fechas_unicas[0])
-                fecha_hasta_var.set(fechas_unicas[-1])
-            aplicar_filtros()
-
-        tk.Button(fbar, text="  Aplicar  ", command=aplicar_filtros,
-                  bg=ACCENT, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 9, "bold"), cursor="hand2",
-                  pady=5, padx=10,
-                  activebackground=HDR, activeforeground=WHITE
-                  ).pack(side="left", padx=(0, 6))
-        tk.Button(fbar, text="  Resetear  ", command=resetear_filtros,
-                  bg=TEXT2, fg=WHITE, relief="flat",
-                  font=("Segoe UI", 9), cursor="hand2",
-                  pady=5, padx=10,
-                  activebackground=HDR, activeforeground=WHITE
-                  ).pack(side="left")
-
-        aplicar_filtros()
+            self.tree.heading(col, command=lambda: self._ordenar(col, not reverse))
+        except Exception: pass
 
     def _autoconnect(self):
         try:
             self.db.connect()
-            if not self.db.is_panaderia_ready():
-                self.db.init_panaderia()
-            self.lbl_status.config(
-                text="Base de datos conectada: MongoDB (panaderia)")
+            if self.db.is_panaderia_ready():
+                n = self.db.table_row_count("Ventas")
+                self.lbl_conn.config(
+                    text=f"🟢  MongoDB conectado\n    {n:,} ventas cargadas", fg="#70E090")
+            else:
+                self.lbl_conn.config(
+                    text="🟡  MongoDB conectado\n    Sin datos — ejecuta\n    inicializar_bd.bat",
+                    fg="#E0C070")
         except Exception as e:
-            self.lbl_status.config(
-                text="MongoDB no disponible: " + str(e))
+            self.lbl_conn.config(
+                text=f"🔴  MongoDB no disponible\n    {str(e)[:60]}", fg="#E07070")
 
 
 if __name__ == "__main__":

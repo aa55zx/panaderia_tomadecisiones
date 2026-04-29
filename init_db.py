@@ -1,5 +1,5 @@
 """
-init_db.py — Inicializa panaderia.db con datos de ejemplo.
+init_db.py — Inicializa la base de datos MongoDB para Panaderia El Ranchero.
 Ejecutar: python init_db.py
 """
 import os
@@ -10,16 +10,30 @@ sys.path.insert(0, BASE_DIR)
 
 from database import Database
 
-DB_PATH = os.path.join(BASE_DIR, "panaderia.db")
+URI     = "mongodb://localhost:27017"
+DB_NAME = "panaderia"
 
-print("=" * 50)
-print("  Panaderia El Ranchero — Inicializar BD")
-print("=" * 50)
-print(f"  Archivo: {DB_PATH}")
+print("=" * 52)
+print("  Panaderia El Ranchero — Inicializar MongoDB")
+print("=" * 52)
+print(f"  URI     : {URI}")
+print(f"  Base DB : {DB_NAME}")
 print()
 
 db = Database()
-db.connect(DB_PATH)
+
+try:
+    db.connect(uri=URI, db_name=DB_NAME)
+    print("  Conexion a MongoDB: OK")
+except Exception as e:
+    print(f"\n  [ERROR] No se pudo conectar a MongoDB:")
+    print(f"  {e}")
+    print()
+    print("  Asegurate de que MongoDB este corriendo.")
+    print("  Descargalo en: https://www.mongodb.com/try/download/community")
+    print()
+    input("  Presiona Enter para cerrar...")
+    sys.exit(1)
 
 if db.is_panaderia_ready():
     filas = db.table_row_count("Ventas")
@@ -29,28 +43,24 @@ if db.is_panaderia_ready():
         print("  Cancelado.")
         db.close()
         sys.exit(0)
-    db.conn.executescript("""
-        DROP TABLE IF EXISTS Ventas;
-        DROP TABLE IF EXISTS Productos;
-        DROP TABLE IF EXISTS Insumos;
-    """)
-    db.conn.commit()
-    print("  Tablas eliminadas. Regenerando...")
+    print("  Eliminando colecciones existentes...")
+    for col in ["Ventas", "Productos", "Insumos"]:
+        db.drop_table(col)
     print()
 
-print("  Creando tablas...")
-print("  Generando 180 dias de datos...")
+print("  Creando colecciones...")
+print("  Generando 180 dias de datos de ejemplo...")
 print()
 
 db.init_panaderia(dias=180)
 
 print("  Listo!\n")
-print("  Tablas creadas:")
+print("  Colecciones creadas:")
 for tabla in db.list_tables():
     n = db.table_row_count(tabla)
-    print(f"    {tabla:<20} {n:>8,} filas")
+    print(f"    {tabla:<20} {n:>8,} documentos")
 
 db.close()
 print()
-print("=" * 50)
+print("=" * 52)
 input("  Presiona Enter para cerrar...")
